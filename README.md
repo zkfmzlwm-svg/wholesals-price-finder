@@ -2,7 +2,11 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v10.0
+## 현재 버전: v1.0
+
+### 버전 정책
+- 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
+- 사이트 추가 → 소수점 버전업 (예: 1.0 → 1.1)
 
 ## 내장 지원 사이트 (8개)
 | 사이트 | 기술 스택 | 로그인 방식 |
@@ -27,16 +31,21 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v10.0.py
+python wholesale_price_finder_v1.0.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v10.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v1.0.py
 ```
 
 ## 변경 이력
+- v1.0 — 버전 넘버링 재시작 기준판 (8사이트 + 즐겨찾기/메모장/암호화 기능).
+  전체 디버그: Generic 크롤러 검색어 URL 인코딩 누락 수정, 사이트 수정 시
+  내장(builtin) 표시 소실 버그 수정, 미사용 import 제거.
+
+### 참고: 이전 버전 이력 (재시작 이전 넘버링)
 - v10.0 — 팜스트리트(보령) 크롤러 추가 (8사이트)
 - v9.0  — 팜뉴트리션, 드시모네 크롤러 추가 (7사이트)
 - v8.1  — 전체 디버그 (filter_cookies yarl, 우클릭 col_id 등 5건)
