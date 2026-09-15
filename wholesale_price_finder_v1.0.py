@@ -1,41 +1,41 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v5.0 — Windows GUI
+도매 최저가 비교 프로그램 v1.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v4.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v1.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
   pip install cryptography   (선택 — 비밀번호 강력 암호화)
 
+버전 정책 (v1.0부터 적용):
+  - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
+  - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
+
 변경 이력:
-  v7.0.0 — 메모장 탭 추가 (사이트별 로그인 정보 기록, 암호화 저장)
-  v6.0.0 — 새로팜(SaeroPharm) 크롤러 추가, 5사이트 내장
-  v5.0.0 — 플랫팜(PlatPharm) 크롤러 추가, 4사이트 내장
-  v4.1   — 디버그 (정렬 후 더블클릭 오류 등 9건 수정)
-  v4.0.0 — 한미몰(HMPMall) 크롤러 추가, 3사이트 내장
-  v3.0.0 — Windows GUI (tkinter), 사이트/로그인/검색/결과를 탭 UI로 통합
-  v2.0.0 — 비밀번호 암호화, 로그인 세션 강화, CLI 로그인 관리
-  v1.0.0 — CLI 올인원 버전
+  v1.0 — 버전 넘버링 재시작 기준판. 8개 사이트(바로팜/유팜몰/한미몰/플랫팜/새로팜/
+         팜뉴트리션/드시모네/팜스트리트) + 즐겨찾기/메모장/암호화 기능 포함.
+         전체 디버그: Generic 크롤러 검색어 URL 인코딩 누락, 사이트 수정 시
+         내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "10.0"
+__version__ = "1.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
 # ═══════════════════════════════════════════════════════════════
-import json, os, re, sys, asyncio, time, random, base64, threading, webbrowser
+import json, re, sys, asyncio, time, random, base64, threading, webbrowser
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 from yarl import URL as YarlURL
 
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 
 # ═══════════════════════════════════════════════════════════════
 # 외부 패키지
@@ -347,7 +347,7 @@ class BaseCrawler(ABC):
 class GenericCrawler(BaseCrawler):
     async def search(self, query, max_results=10):
         pat = self.selectors.get("search_url_pattern", "/search?q={query}")
-        soup = await self.get_soup(self.full_url(pat.replace("{query}", query)))
+        soup = await self.get_soup(self.full_url(pat.replace("{query}", quote(query))))
         sel = self.selectors
         products = []
         for item in soup.select(sel.get("product_list", ".product-item"))[:max_results]:
@@ -2743,8 +2743,11 @@ class SiteDialog(tk.Toplevel):
             site["selectors"][key] = var.get()
 
         if self.edit_idx is not None:
-            # 수정 — 기존의 enabled 상태 유지
-            site["enabled"] = self.parent.config_data["sites"][self.edit_idx].get("enabled", True)
+            # 수정 — 기존의 enabled 상태 및 builtin 표시 유지
+            old_site = self.parent.config_data["sites"][self.edit_idx]
+            site["enabled"] = old_site.get("enabled", True)
+            if old_site.get("builtin"):
+                site["builtin"] = True
             self.parent.config_data["sites"][self.edit_idx] = site
         else:
             self.parent.config_data.setdefault("sites", []).append(site)
