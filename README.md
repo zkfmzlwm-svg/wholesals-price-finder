@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.1
+## 현재 버전: v2.2
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -19,15 +19,21 @@
 | 팜뉴트리션 | 그누보드 PHP | 폼 POST |
 | 드시모네 | Cafe24 | multipart/form-data |
 | 팜스트리트 | JSP | 폼 POST |
-| 대웅더샵 | Generic (미검증) | 폼 POST (placeholder) |
+| 대웅더샵 | Generic, Next.js SSR (로그인/검색 URL 확인, 상품목록 셀렉터 미확인) | 폼 POST 추정 (userId/userPwd, JSON 여부 미확인) |
 | 동아DAPmall | Generic (미검증) | 폼 POST (placeholder) |
 | 서울약사신협 | Generic (미검증, Classic ASP 추정) | 폼 POST (placeholder) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 
-> 대웅더샵/동아DAPmall/서울약사신협 3곳은 아웃바운드 네트워크가 제한된 환경에서
+> 동아DAPmall/서울약사신협 2곳은 아웃바운드 네트워크가 제한된 환경에서
 > 추가되어 실제 로그인/검색 응답을 확인하지 못했습니다. 프로그램 실행 후
 > "사이트 관리 > 수정"에서 실제 로그인 URL, ID/PW input name, 검색 결과 CSS
 > 셀렉터를 확인해 입력해야 정상적으로 동작합니다.
+>
+> 대웅더샵은 로그인(`POST https://www.shop.co.kr/front/front/api/auth/login`,
+> 필드 userId/userPwd)과 검색(`GET https://the.shop.co.kr/contents/search
+> ?searchKey=all&searchVal={query}`) URL·필드명까지는 확인됐지만, 로그인
+> payload가 JSON인지 form-urlencoded인지와 검색 결과 HTML의 정확한 CSS
+> 셀렉터는 아직 미확인이라 "사이트 관리 > 수정"에서 추가 보정이 필요합니다.
 >
 > 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
 > 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로
@@ -54,6 +60,13 @@ pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
 ```
 
 ## 변경 이력
+- v2.2 — 대웅더샵(the.shop.co.kr / www.shop.co.kr) 로그인·검색 요청 형식
+  일부 확인. 로그인 `POST https://www.shop.co.kr/front/front/api/auth/login`
+  (필드 userId/userPwd, JSON/form-urlencoded 여부 미확인), 검색
+  `GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}`
+  (searchKey 옵션: all/상품명/제조사/보험코드/상품코드/포함성분/ATC, Next.js
+  SSR 풀 페이지 HTML에 상품 리스트가 직접 렌더링됨을 확인). 상품 목록 HTML의
+  정확한 CSS 셀렉터는 아직 미확인.
 - v2.1 — 스마트팜 로그인/검색/상품목록 파싱 형식 확인, 전용 SmartPharmCrawler로
   완성. 로그인 `POST /Login/Login.asp`(UserID/UserPW 평문, 암호화 없음, 세션
   쿠키 인증), 검색 `GET /Goods/Goods_List.asp`(TopSearchKey는 EUC-KR 인코딩
