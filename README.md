@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.2
+## 현재 버전: v2.3
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -21,11 +21,11 @@
 | 팜스트리트 | JSP | 폼 POST |
 | 대웅더샵 | Generic, Next.js SSR (로그인/검색 URL 확인, 상품목록 셀렉터 미확인) | 폼 POST 추정 (userId/userPwd, JSON 여부 미확인) |
 | 동아DAPmall | Generic (미검증) | 폼 POST (placeholder) |
-| 서울약사신협 | Generic (미검증, Classic ASP 추정) | 폼 POST (placeholder) |
+| 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 
-> 동아DAPmall/서울약사신협 2곳은 아웃바운드 네트워크가 제한된 환경에서
-> 추가되어 실제 로그인/검색 응답을 확인하지 못했습니다. 프로그램 실행 후
+> 동아DAPmall은 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제
+> 로그인/검색 응답을 확인하지 못했습니다. 프로그램 실행 후
 > "사이트 관리 > 수정"에서 실제 로그인 URL, ID/PW input name, 검색 결과 CSS
 > 셀렉터를 확인해 입력해야 정상적으로 동작합니다.
 >
@@ -38,6 +38,11 @@
 > 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
 > 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로
 > 정상 동작합니다.
+>
+> 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
+> 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
+> 구현되어 있습니다. 비밀번호 클라이언트측 AES 암호화 여부만 미확인 상태로,
+> 우선 평문 전송합니다.
 
 ## 주요 기능
 - 🔍 여러 사이트 동시 검색 및 가격 비교
@@ -60,13 +65,20 @@ pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
 ```
 
 ## 변경 이력
-- v2.2 — 대웅더샵(the.shop.co.kr / www.shop.co.kr) 로그인·검색 요청 형식
+- v2.3 — 대웅더샵(the.shop.co.kr / www.shop.co.kr) 로그인·검색 요청 형식
   일부 확인. 로그인 `POST https://www.shop.co.kr/front/front/api/auth/login`
   (필드 userId/userPwd, JSON/form-urlencoded 여부 미확인), 검색
   `GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}`
   (searchKey 옵션: all/상품명/제조사/보험코드/상품코드/포함성분/ATC, Next.js
   SSR 풀 페이지 HTML에 상품 리스트가 직접 렌더링됨을 확인). 상품 목록 HTML의
   정확한 CSS 셀렉터는 아직 미확인.
+- v2.2 — 서울약사신협 로그인/검색 스펙 확인(사용자 제공), 전용 CupharmCrawler로
+  완성. 로그인 `POST /member/login_chk.asp`(w14_user_id/w14_user_pwd 폼 POST,
+  "일치하지" 문자열로 실패·"w14_user_cd" 포함 여부로 성공 판별), 검색
+  `GET /order/order_goods.asp`(s_c11_med_nm 등), 결과 행 onclick의
+  `fun_old_list(...)` 파라미터에서 단가/재고 추출(재고 0일 때 `<td>`가 숫자
+  대신 팝업 아이콘으로 바뀌어 텍스트 파싱이 불안정하기 때문). 비밀번호 AES
+  암호화 여부는 미확인 — 우선 평문 전송.
 - v2.1 — 스마트팜 로그인/검색/상품목록 파싱 형식 확인, 전용 SmartPharmCrawler로
   완성. 로그인 `POST /Login/Login.asp`(UserID/UserPW 평문, 암호화 없음, 세션
   쿠키 인증), 검색 `GET /Goods/Goods_List.asp`(TopSearchKey는 EUC-KR 인코딩
