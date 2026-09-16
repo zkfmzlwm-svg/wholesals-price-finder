@@ -393,7 +393,7 @@ class BaroPharmCrawler(BaseCrawler):
     """
     바로팜 (baropharm.com) 전용 크롤러.
 
-    로그인: POST https://api.baropharm.com/api/rest-auth/login/
+    로그인: POST https://api-v2.baropharm.com/auth/login (2026-09 확인, 구 주소는 404)
             payload: {"username": "...", "password": "..."}
             응답: {"key": "토큰값"} → 이후 요청에 Authorization: Token <key> 헤더
 
@@ -401,7 +401,7 @@ class BaroPharmCrawler(BaseCrawler):
             응답: {"products": [{"name": "...", "items": [{"lowest_price": ..., ...}]}]}
     """
 
-    API_LOGIN   = "https://api.baropharm.com/api/rest-auth/login/"
+    API_LOGIN   = "https://api-v2.baropharm.com/auth/login"
     API_SEARCH  = "https://api-v2.baropharm.com/me/search/products"
     WEB_PRODUCT = "https://www.baropharm.com/order?q="
 
@@ -1490,6 +1490,11 @@ class PharmStreetCrawler(BaseCrawler):
             raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
 
         await self._ensure_session()
+
+        # JSP 세션 기반 사이트 — 로그인 POST 전에 로그인 페이지를 먼저 GET하여
+        # 세션 쿠키(JSESSIONID 등)를 확보해야 함 (쿠키 없이 바로 POST하면 거부됨)
+        async with self.session.get(self.LOGIN_URL, headers=self._headers) as resp:
+            await resp.text()
 
         login_data = {
             "HANYAK_ACC_DT": "2023-02-21",
