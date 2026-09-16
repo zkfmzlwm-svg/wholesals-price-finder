@@ -14,6 +14,13 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.1 — 스마트팜(smartpharm.co.kr) 로그인/검색/상품목록 파싱 형식 확인, 전용
+         SmartPharmCrawler로 완성. 로그인 POST /Login/Login.asp(UserID/UserPW
+         평문, 암호화 없음), 검색 GET /Goods/Goods_List.asp(TopSearchKey는
+         EUC-KR 인코딩 필수, TopSearch_CMP_NUM=0002 고정값), 목록 파싱은
+         tr#GoodsTR 행에서 a.list(상품명)/td.smart_nomal(규격,제조사)/
+         td.smart_money2(공급가)를 읽고 onclick 속성의 iPageGo(...Key=XXXX...)
+         에서 상세 페이지 Key를 추출.
   v2.0 — 검색 결과 화면에 사이트별 결과 건수 표시 추가 (0건/오류인 사이트를
          검색할 때마다 바로 확인 가능 — 사이트 HTML 구조 변경으로 파싱이
          조용히 깨지는 문제를 사용자가 즉시 알아챌 수 있도록 함).
@@ -29,7 +36,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.0"
+__version__ = "2.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1614,6 +1621,169 @@ class PharmStreetCrawler(BaseCrawler):
         return products[:max_results]
 
 
+class SmartPharmCrawler(BaseCrawler):
+    """
+    스마트팜 (smartpharm.co.kr) 전용 크롤러.
+
+    Classic ASP 기반 도매 사이트.
+
+    로그인 (확인됨): POST /Login/Login.asp
+      - 필드: UserID, UserPW, SaveID(체크박스), AutoLogin(체크박스), reURL(hidden, 빈값)
+      - 암호화 없음 — 페이지에 crypto-js/aes.js 등이 없고 onsubmit 핸들러도 없어
+        비밀번호를 평문으로 POST함 (HTTPS로만 보호됨)
+      - 별도 토큰 없이 세션 쿠키로 인증 유지. 로그아웃은 /Login/Logout.asp
+
+    검색 (확인됨): GET /Goods/Goods_List.asp
+      - TopSearchKey: 검색어. ⚠️ 페이지 characterSet이 EUC-KR이라 반드시
+        EUC-KR로 인코딩해야 함 (UTF-8로 보내면 검색 결과가 안 나옴)
+      - TopSearchGubun=1 (검색 대상: 상품명)
+      - TopSearch_CMP_NUM=0002 — 숨김 select에 option이 1개뿐인 고정값
+        (검색어와 무관, 항상 그대로 붙이면 됨)
+      - ctg / TopSearchsCtg1: 카테고리 코드 (001 전문의약품 … 007 일반상품, 빈값=전체)
+      - cmp / TopSearch_MakeCmp: 제조사 코드/명 (자동완성 텍스트박스, 보통 빈값)
+      - pdnum: 빈값 (특정 상품코드 직접 조회용으로 추정)
+      - 세션 쿠키 필요 (미로그인 시 리스트가 비거나 로그인 페이지로 리다이렉트될
+        가능성 있음 — 미로그인 상태는 확인 안 됨)
+
+    상품 목록 결과 (확인됨): 각 상품이 <tr id="GoodsTR"> 행으로 표시되며, 가격까지
+    목록에 바로 노출되어 상세 페이지(Goods_View.asp) 조회 없이 파싱 가능.
+      - a.list                → 상품명
+      - td.smart_nomal (1번째) → 규격 (예: "20ml*5P", "12P", "500ml")
+      - td.smart_nomal (2번째) → 제조사 (비어있을 수 있음)
+      - td.smart_money2        → 공급가 (예: "2,010원")
+      - tr의 onclick 속성 중 iPageGo('GoodsView', '/Goods/Goods_View.asp?Key=XXXX&cmp=')
+        에서 Key를 추출해 상세 페이지 URL 구성 (a 태그 href는 javascript:void(0)이라
+        직접 사용 불가)
+      - img[src] — 이미지 없는 상품은 플레이스홀더(no36.gif)이므로 그 경우는 제외
+    """
+
+    BASE       = "https://www.smartpharm.co.kr"
+    LOGIN_URL  = "https://www.smartpharm.co.kr/Login/Login.asp"
+    SEARCH_URL = "https://www.smartpharm.co.kr/Goods/Goods_List.asp"
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+
+        await self._ensure_session()
+
+        login_data = {
+            "UserID": username,
+            "UserPW": password,
+            "SaveID": "on",
+            "AutoLogin": "",
+            "reURL": "",
+        }
+
+        async with self.session.post(
+            self.LOGIN_URL, data=login_data,
+            headers={
+                **self._headers,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": self.LOGIN_URL,
+                "Origin": self.BASE,
+            },
+        ) as resp:
+            html = await resp.text()
+
+        if "Logout.asp" in html or "로그아웃" in html:
+            self.logged_in = True
+        else:
+            async with self.session.get(self.BASE, headers=self._headers) as check:
+                check_html = await check.text()
+            if "Logout.asp" in check_html or "로그아웃" in check_html:
+                self.logged_in = True
+            else:
+                raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+
+    async def verify_login(self) -> bool:
+        return self.logged_in
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+
+        # ⚠️ EUC-KR 인코딩 필수 — document.characterSet이 EUC-KR이라
+        # UTF-8로 보내면 검색이 되지 않음
+        query_euckr = quote(query.encode("euc-kr", errors="ignore"))
+
+        params = {
+            "ctg": "", "cmp": "",
+            "TopSearchKey": query_euckr,
+            "TopSearchGubun": "1",
+            "TopSearch_MakeCmp": "",
+            "TopSearch_CMP_NUM": "0002",
+            "pdnum": "", "TopSearchsCtg1": "",
+        }
+        search_url = f"{self.SEARCH_URL}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+
+        async with self.session.get(search_url, headers={
+            **self._headers, "Referer": self.BASE,
+        }) as resp:
+            html = await resp.text(encoding="euc-kr", errors="ignore")
+
+        soup = BeautifulSoup(html, "html.parser")
+        products = []
+
+        # 상품 행: <tr id="GoodsTR" ... onclick="...iPageGo('GoodsView', '/Goods/Goods_View.asp?Key=XXXX&cmp=');">
+        for row in soup.select('tr[id="GoodsTR"]')[:max_results * 3]:
+            try:
+                name_el = row.select_one("a.list")
+                if not name_el:
+                    continue
+                name = self.clean_text(name_el.get_text())
+                if not name:
+                    continue
+
+                # 규격/제조사: td.smart_nomal 2개 (1번째=규격, 2번째=제조사)
+                nomal_tds = row.select("td.smart_nomal")
+                spec = self.clean_text(nomal_tds[0].get_text()) if len(nomal_tds) > 0 else ""
+                maker = self.clean_text(nomal_tds[1].get_text()) if len(nomal_tds) > 1 else ""
+
+                # 공급가: td.smart_money2
+                price_el = row.select_one("td.smart_money2")
+                price = self.extract_price(price_el.get_text()) if price_el else 0
+                if price <= 0:
+                    continue
+
+                # 상세 페이지 Key: onclick 속성에서 추출 (href는 javascript:void(0))
+                onclick = row.get("onclick", "")
+                m = re.search(r"Key=([A-Za-z0-9]+)", onclick)
+                prod_url = f"{self.BASE}/Goods/Goods_View.asp?Key={m.group(1)}&cmp=" if m else search_url
+
+                img_el = row.select_one("img")
+                img_url = None
+                if img_el:
+                    src = img_el.get("src", "")
+                    if src and "no36.gif" not in src:
+                        img_url = f"{self.BASE}{src}" if src.startswith("/") else src
+
+                display_name = f"{name} ({spec})" if spec else name
+
+                extra = {}
+                if maker:
+                    extra["제조사"] = maker
+
+                products.append(Product(
+                    name=display_name,
+                    price=price,
+                    unit_price=spec if spec else None,
+                    url=prod_url,
+                    site_name=self.site_name,
+                    image_url=img_url,
+                    in_stock=True,
+                    extra_info=extra,
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -1623,6 +1793,7 @@ CUSTOM_CRAWLERS = {
     "pharmnutrition": PharmNutritionCrawler,
     "desimone":       DesimoneCrawler,
     "pharmstreet":    PharmStreetCrawler,
+    "smartpharm":     SmartPharmCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -1816,12 +1987,14 @@ PHARMSTREET_PRESET = {
 }
 
 # ── 신규 추가 사이트 (v1.4) ──
-# 주의: 이 4개 사이트는 아웃바운드 네트워크가 차단된 샌드박스에서 추가되어
+# 주의: 이 3개 사이트는 아웃바운드 네트워크가 차단된 샌드박스에서 추가되어
 # 실제 로그인 요청/응답, 검색 결과 HTML 구조를 직접 확인하지 못했습니다.
 # base_url(과 dapmall의 로그인 페이지 URL)만 확정 정보이고, login_url/ID·PW
 # 필드명/검색 CSS 셀렉터는 다른 사이트의 일반적인 패턴을 참고한 placeholder입니다.
 # 앱의 "사이트 관리 > 수정" 화면에서 실제 로그인 폼/검색 결과 페이지를 보고
 # 값을 채우면 GenericCrawler로 정상 동작합니다. (필요 시 전용 크롤러 클래스로 승격 가능)
+# 스마트팜은 v1.5에서 로그인/검색 요청 형식이 확인되어 SmartPharmCrawler로
+# 승격되었습니다 (아래 별도 섹션 참고).
 DAEWOONG_THESHOP_PRESET = {
     "name": "대웅더샵",
     "enabled": True,
@@ -1889,24 +2062,28 @@ CUPHARM_PRESET = {
     "extra_config": {},
 }
 
+# ── 스마트팜: v1.5에서 로그인/검색 요청 형식 확인, v1.6에서 상품 목록 결과
+# HTML 구조까지 확인됨 (SmartPharmCrawler로 승격). 상세는 SmartPharmCrawler
+# 클래스 docstring 및 search() 참고.
 SMARTPHARM_PRESET = {
     "name": "스마트팜",
     "enabled": True,
     "builtin": True,
-    "crawler_type": "generic",
+    "crawler_type": "smartpharm",
     "base_url": "https://www.smartpharm.co.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
     "login_config": {
-        "login_url": "/member/login", "login_method": "form_post",
-        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "login_url": "https://www.smartpharm.co.kr/Login/Login.asp",
+        "login_method": "custom",
+        "login_fields": {"UserID": "{username}", "UserPW": "{password}"},
         "csrf_selector": None, "csrf_field_name": None,
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
-        "search_url_pattern": "/search?keyword={query}",
-        "product_list": ".product-item", "product_name": ".product-name",
-        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+        "search_url_pattern": "/Goods/Goods_List.asp?ctg=&cmp=&TopSearchKey={query}&TopSearchGubun=1&TopSearch_MakeCmp=&TopSearch_CMP_NUM=0002&pdnum=&TopSearchsCtg1=",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
     },
     "extra_config": {},
 }

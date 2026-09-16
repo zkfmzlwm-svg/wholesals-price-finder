@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.0
+## 현재 버전: v2.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -22,12 +22,16 @@
 | 대웅더샵 | Generic (미검증) | 폼 POST (placeholder) |
 | 동아DAPmall | Generic (미검증) | 폼 POST (placeholder) |
 | 서울약사신협 | Generic (미검증, Classic ASP 추정) | 폼 POST (placeholder) |
-| 스마트팜 | Generic (미검증) | 폼 POST (placeholder) |
+| 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 
-> 마지막 4개 사이트는 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제 로그인/
-> 검색 응답을 확인하지 못했습니다. 프로그램 실행 후 "사이트 관리 > 수정"에서
-> 실제 로그인 URL, ID/PW input name, 검색 결과 CSS 셀렉터를 확인해 입력해야
-> 정상적으로 동작합니다.
+> 대웅더샵/동아DAPmall/서울약사신협 3곳은 아웃바운드 네트워크가 제한된 환경에서
+> 추가되어 실제 로그인/검색 응답을 확인하지 못했습니다. 프로그램 실행 후
+> "사이트 관리 > 수정"에서 실제 로그인 URL, ID/PW input name, 검색 결과 CSS
+> 셀렉터를 확인해 입력해야 정상적으로 동작합니다.
+>
+> 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
+> 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로
+> 정상 동작합니다.
 
 ## 주요 기능
 - 🔍 여러 사이트 동시 검색 및 가격 비교
@@ -50,6 +54,12 @@ pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
 ```
 
 ## 변경 이력
+- v2.1 — 스마트팜 로그인/검색/상품목록 파싱 형식 확인, 전용 SmartPharmCrawler로
+  완성. 로그인 `POST /Login/Login.asp`(UserID/UserPW 평문, 암호화 없음, 세션
+  쿠키 인증), 검색 `GET /Goods/Goods_List.asp`(TopSearchKey는 EUC-KR 인코딩
+  필수, TopSearch_CMP_NUM=0002 고정값), 목록 파싱은 `tr#GoodsTR` 행에서
+  `a.list`(상품명)/`td.smart_nomal`(규격,제조사)/`td.smart_money2`(공급가)를
+  읽고 `onclick` 속성의 `iPageGo(...Key=XXXX...)`에서 상세 페이지 Key를 추출.
 - v2.0 — 검색 결과 화면에 사이트별 결과 건수 표시 추가 (0건/오류 사이트를
   검색할 때마다 바로 확인 가능). 바로팜 로그인 API 주소 변경(404) 수정,
   팜스트리트 로그인 판정 로직을 실제 AJAX/JSON 응답 기준으로 수정.
