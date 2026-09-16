@@ -19,6 +19,10 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          조용히 깨지는 문제를 사용자가 즉시 알아챌 수 있도록 함).
          바로팜 로그인 API 주소 변경(404) 및 팜스트리트 로그인 판정 로직
          (AJAX/JSON 응답 기준) 수정.
+  v1.4 — 사이트 4곳 추가(대웅더샵/동아DAPmall/서울약사신협/스마트팜, generic 크롤러).
+         샌드박스 네트워크 제한으로 실제 로그인/검색 응답을 확인하지 못해 로그인
+         URL·필드명·검색 셀렉터는 placeholder임. "사이트 관리 > 수정"에서 실제
+         값으로 보정 필요.
   v1.0 — 버전 넘버링 재시작 기준판. 8개 사이트(바로팜/유팜몰/한미몰/플랫팜/새로팜/
          팜뉴트리션/드시모네/팜스트리트) + 즐겨찾기/메모장/암호화 기능 포함.
          전체 디버그: Generic 크롤러 검색어 URL 인코딩 누락, 사이트 수정 시
@@ -211,9 +215,11 @@ def load_config() -> dict:
                 site["requires_login"] = bool(creds.get("username"))
                 migrated = True
         # 내장 사이트가 빠져 있으면 자동 추가
-        existing_types = {s.get("crawler_type") for s in config.get("sites", [])}
+        # (이름 기준 매칭 — 여러 내장 사이트가 같은 crawler_type("generic")을
+        #  공유할 수 있으므로 crawler_type만으로는 개별 사이트 누락을 못 잡음)
+        existing_names = {s.get("name") for s in config.get("sites", [])}
         for builtin in BUILTIN_SITES:
-            if builtin["crawler_type"] not in existing_types:
+            if builtin["name"] not in existing_names:
                 config.setdefault("sites", []).insert(0, copy.deepcopy(builtin))
                 migrated = True
         if migrated:
@@ -1809,6 +1815,102 @@ PHARMSTREET_PRESET = {
     "extra_config": {},
 }
 
+# ── 신규 추가 사이트 (v1.4) ──
+# 주의: 이 4개 사이트는 아웃바운드 네트워크가 차단된 샌드박스에서 추가되어
+# 실제 로그인 요청/응답, 검색 결과 HTML 구조를 직접 확인하지 못했습니다.
+# base_url(과 dapmall의 로그인 페이지 URL)만 확정 정보이고, login_url/ID·PW
+# 필드명/검색 CSS 셀렉터는 다른 사이트의 일반적인 패턴을 참고한 placeholder입니다.
+# 앱의 "사이트 관리 > 수정" 화면에서 실제 로그인 폼/검색 결과 페이지를 보고
+# 값을 채우면 GenericCrawler로 정상 동작합니다. (필요 시 전용 크롤러 클래스로 승격 가능)
+DAEWOONG_THESHOP_PRESET = {
+    "name": "대웅더샵",
+    "enabled": True,
+    "builtin": True,
+    "crawler_type": "generic",
+    "base_url": "https://the.shop.co.kr",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "/member/login", "login_method": "form_post",
+        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/search?keyword={query}",
+        "product_list": ".product-item", "product_name": ".product-name",
+        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+    },
+    "extra_config": {},
+}
+
+DAPMALL_PRESET = {
+    "name": "동아DAPmall",
+    "enabled": True,
+    "builtin": True,
+    "crawler_type": "generic",
+    "base_url": "https://www.dapmall.com",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "https://www.dapmall.com/auth/login", "login_method": "form_post",
+        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/search?keyword={query}",
+        "product_list": ".product-item", "product_name": ".product-name",
+        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+    },
+    "extra_config": {},
+}
+
+CUPHARM_PRESET = {
+    "name": "서울약사신협",
+    "enabled": True,
+    "builtin": True,
+    "crawler_type": "generic",
+    "base_url": "https://www.cupharm.kr",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        # main.asp 확장자로 보아 Classic ASP 기반으로 추정 (미검증)
+        "login_url": "/member/login.asp", "login_method": "form_post",
+        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/shop/search.asp?keyword={query}",
+        "product_list": ".product-item", "product_name": ".product-name",
+        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+    },
+    "extra_config": {},
+}
+
+SMARTPHARM_PRESET = {
+    "name": "스마트팜",
+    "enabled": True,
+    "builtin": True,
+    "crawler_type": "generic",
+    "base_url": "https://www.smartpharm.co.kr",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "/member/login", "login_method": "form_post",
+        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/search?keyword={query}",
+        "product_list": ".product-item", "product_name": ".product-name",
+        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+    },
+    "extra_config": {},
+}
+
 BUILTIN_SITES = [
     BAROPHARM_PRESET,
     UPHARMMALL_PRESET,
@@ -1818,6 +1920,10 @@ BUILTIN_SITES = [
     PHARMNUTRITION_PRESET,
     DESIMONE_PRESET,
     PHARMSTREET_PRESET,
+    DAEWOONG_THESHOP_PRESET,
+    DAPMALL_PRESET,
+    CUPHARM_PRESET,
+    SMARTPHARM_PRESET,
 ]
 
 def create_crawler(sc):
