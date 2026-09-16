@@ -14,6 +14,14 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.2 — 서울약사신협(cupharm.kr) 로그인/검색 스펙 확인(사용자 제공), 전용
+         CupharmCrawler로 완성. 로그인 POST /member/login_chk.asp
+         (w14_user_id/w14_user_pwd 폼 POST, "일치하지" 문자열로 실패 판별,
+         "w14_user_cd" 포함 여부로 성공 판별), 검색 GET /order/order_goods.asp
+         (s_c11_med_nm 등), 결과 행의 onclick="fun_old_list(...)" 파라미터에서
+         단가/재고를 정규식으로 추출 (재고 0일 때 <td>가 숫자 대신 팝업
+         아이콘으로 바뀌어 텍스트 파싱이 불안정하기 때문). 비밀번호 AES
+         암호화 여부는 미확인 — 우선 평문 전송.
   v2.1 — 스마트팜(smartpharm.co.kr) 로그인/검색/상품목록 파싱 형식 확인, 전용
          SmartPharmCrawler로 완성. 로그인 POST /Login/Login.asp(UserID/UserPW
          평문, 암호화 없음), 검색 GET /Goods/Goods_List.asp(TopSearchKey는
@@ -36,7 +44,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.1"
+__version__ = "2.2"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -174,6 +182,7 @@ SITE_SEARCH_PATTERNS = {
     "한미몰":  "https://hmpmall.co.kr/search/searchTwoStepList.do?productName={query}",
     "플랫팜":  "https://www.platpharm.co.kr/search?qs={query}",
     "새로팜":  "https://www.saeropharm.com/w/product/searchProductList.do?mainSchValue={query}",
+    "서울약사신협": "https://www.cupharm.kr/order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&page=1&s_w12_flag=P&search_flg=ok&w14_user_type=1&search_type=2",
 }
 
 DEFAULT_CONFIG = {
@@ -1784,6 +1793,130 @@ class SmartPharmCrawler(BaseCrawler):
         return products[:max_results]
 
 
+class CupharmCrawler(BaseCrawler):
+    """
+    서울약사신협 (cupharm.kr) 전용 크롤러.
+
+    Classic ASP 기반 발주 시스템.
+
+    로그인 (확인됨): POST /member/login_chk.asp — 일반 form POST (AJAX 아님)
+      - 필드: w14_user_id(사업자번호), w14_user_pwd
+      - 실패 응답: alert('비밀번호가 일치하지 않습니다.') 스크립트 포함
+      - 성공 응답: w14_user_cd 등 세션 정보 텍스트 + location.href 리다이렉트 스크립트
+      - 비밀번호 클라이언트측 AES 암호화 여부는 미확인 — 우선 평문 전송.
+        (페이지에 crypto-js가 로드되어 있으나 실제 로그인 시 사용 여부는 불명확.
+        로그인이 계속 실패하면 Network 탭에서 w14_user_pwd 값이 평문인지 확인 필요)
+
+    검색 (확인됨): GET /order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&...
+      - 결과 행: <tr id="order_goods_N" onclick="fun_old_list('의약품코드', idx, '코드',
+        'qty_id', 단가, 재고, ...)">
+      - 단가/재고는 <td> 텍스트보다 onclick 파라미터가 더 안정적함
+        (재고 0일 때 <td>가 숫자 대신 "재고조회" 팝업 아이콘으로 바뀌어 파싱 불가)
+    """
+
+    BASE       = "https://www.cupharm.kr"
+    LOGIN_URL  = "https://www.cupharm.kr/member/login_chk.asp"
+    SEARCH_URL = "https://www.cupharm.kr/order/order_goods.asp"
+
+    ROW_RE = re.compile(
+        r"fun_old_list\('(?P<medcd>\d+)',\d+,'\d+','[^']*',"
+        r"(?P<price>\d+),(?P<stock>\d+),\d+,'[^']*','[^']*',"
+        r"'[^']*','[^']*','[^']*','[^']*'\)"
+    )
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+
+        await self._ensure_session()
+
+        async with self.session.get(f"{self.BASE}/main/main.asp", headers=self._headers) as resp:
+            await resp.text()
+
+        login_data = {"w14_user_id": username, "w14_user_pwd": password}
+        async with self.session.post(
+            self.LOGIN_URL, data=login_data,
+            headers={
+                **self._headers,
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Referer": f"{self.BASE}/main/main.asp",
+                "Origin":  self.BASE,
+            },
+        ) as resp:
+            body = await resp.text()
+
+        if "일치하지" in body or "w14_user_cd" not in body:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 아이디/비밀번호 확인 필요")
+        self.logged_in = True
+
+    async def verify_login(self) -> bool:
+        return self.logged_in
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+
+        params = {
+            "s_c11_med_nm":   query,
+            "s_w11_mk_ven_nm": "",
+            "s_w11_med_cd":   "",
+            "s_w11_ven_cd":   "13528",
+            "page":           "1",
+            "s_w12_flag":     "P",
+            "search_flg":     "ok",
+            "s_w14_med_down": " ",
+            "w14_user_type":  "1",
+            "search_type":    "2",
+        }
+        search_url = f"{self.SEARCH_URL}?{'&'.join(f'{k}={quote(str(v))}' for k, v in params.items())}"
+
+        async with self.session.get(search_url, headers={**self._headers, "Referer": self.BASE}) as resp:
+            html = await resp.text()
+
+        soup = BeautifulSoup(html, "html.parser")
+        products = []
+
+        for tr in soup.select("tr[id^=order_goods_]"):
+            try:
+                m = self.ROW_RE.search(tr.get("onclick", ""))
+                if not m:
+                    continue
+                tds = tr.find_all("td")
+                if len(tds) < 3:
+                    continue
+
+                maker = self.clean_text(tds[0].get_text())
+                name = self.clean_text(tds[1].get_text())
+                if not name:
+                    continue
+                insurance_code = self.clean_text(tds[2].get_text())
+
+                price = int(m.group("price"))
+                stock = int(m.group("stock"))
+
+                extra = {"제조사": maker} if maker else {}
+                if insurance_code:
+                    extra["보험코드"] = insurance_code
+
+                products.append(Product(
+                    name=name,
+                    price=price,
+                    unit_price=None,
+                    url=search_url,
+                    site_name=self.site_name,
+                    in_stock=stock > 0,
+                    extra_info=extra,
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -1794,6 +1927,7 @@ CUSTOM_CRAWLERS = {
     "desimone":       DesimoneCrawler,
     "pharmstreet":    PharmStreetCrawler,
     "smartpharm":     SmartPharmCrawler,
+    "cupharm":        CupharmCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -1987,14 +2121,16 @@ PHARMSTREET_PRESET = {
 }
 
 # ── 신규 추가 사이트 (v1.4) ──
-# 주의: 이 3개 사이트는 아웃바운드 네트워크가 차단된 샌드박스에서 추가되어
-# 실제 로그인 요청/응답, 검색 결과 HTML 구조를 직접 확인하지 못했습니다.
-# base_url(과 dapmall의 로그인 페이지 URL)만 확정 정보이고, login_url/ID·PW
-# 필드명/검색 CSS 셀렉터는 다른 사이트의 일반적인 패턴을 참고한 placeholder입니다.
-# 앱의 "사이트 관리 > 수정" 화면에서 실제 로그인 폼/검색 결과 페이지를 보고
-# 값을 채우면 GenericCrawler로 정상 동작합니다. (필요 시 전용 크롤러 클래스로 승격 가능)
-# 스마트팜은 v1.5에서 로그인/검색 요청 형식이 확인되어 SmartPharmCrawler로
-# 승격되었습니다 (아래 별도 섹션 참고).
+# 주의: 이 2개 사이트(대웅더샵/동아DAPmall)는 아웃바운드 네트워크가 차단된
+# 샌드박스에서 추가되어 실제 로그인 요청/응답, 검색 결과 HTML 구조를 직접
+# 확인하지 못했습니다. base_url(과 dapmall의 로그인 페이지 URL)만 확정
+# 정보이고, login_url/ID·PW 필드명/검색 CSS 셀렉터는 다른 사이트의 일반적인
+# 패턴을 참고한 placeholder입니다. 앱의 "사이트 관리 > 수정" 화면에서 실제
+# 로그인 폼/검색 결과 페이지를 보고 값을 채우면 GenericCrawler로 정상
+# 동작합니다. (필요 시 전용 크롤러 클래스로 승격 가능)
+# 스마트팜은 로그인/검색 요청 형식이 확인되어 SmartPharmCrawler로,
+# 서울약사신협도 사용자가 직접 확인한 스펙으로 CupharmCrawler로 승격되었습니다
+# (아래 각 preset과 CUSTOM_CRAWLERS 참고).
 DAEWOONG_THESHOP_PRESET = {
     "name": "대웅더샵",
     "enabled": True,
@@ -2043,21 +2179,21 @@ CUPHARM_PRESET = {
     "name": "서울약사신협",
     "enabled": True,
     "builtin": True,
-    "crawler_type": "generic",
+    "crawler_type": "cupharm",
     "base_url": "https://www.cupharm.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
     "login_config": {
-        # main.asp 확장자로 보아 Classic ASP 기반으로 추정 (미검증)
-        "login_url": "/member/login.asp", "login_method": "form_post",
-        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "login_url": "https://www.cupharm.kr/member/login_chk.asp",
+        "login_method": "custom",
+        "login_fields": {"w14_user_id": "{username}", "w14_user_pwd": "{password}"},
         "csrf_selector": None, "csrf_field_name": None,
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
-        "search_url_pattern": "/shop/search.asp?keyword={query}",
-        "product_list": ".product-item", "product_name": ".product-name",
-        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+        "search_url_pattern": "/order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
     },
     "extra_config": {},
 }
