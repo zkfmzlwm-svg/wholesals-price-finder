@@ -1468,8 +1468,9 @@ class PharmStreetCrawler(BaseCrawler):
     JSP 기반 의약품 도매몰.
 
     검색 흐름 (확인됨):
-      1. 로그인: POST /login?site_inflow_path=SIP001
+      1. 로그인: POST /login?site_inflow_path=SIP001 (AJAX/XHR, X-Requested-With 필요)
          - 필드: loginId, password, HANYAK_ACC_DT(고정), sid, encId
+         - 응답: JSON {"retCd": "Y"/"N", "retMsg": "..."} (HTML 리다이렉트 아님)
       2. 검색: GET /search/searchPage?query={query}&collection=c_goods&top_totalCount=100
          - dl 요소 파싱
          - dt > em           → 상품명 (highlight span 제거)
@@ -1491,9 +1492,8 @@ class PharmStreetCrawler(BaseCrawler):
 
         await self._ensure_session()
 
-        # JSP 세션 기반 사이트 — 로그인 POST 전에 로그인 페이지를 먼저 GET하여
-        # 세션 쿠키(JSESSIONID 등)를 확보해야 함 (쿠키 없이 바로 POST하면 거부됨)
-        async with self.session.get(self.LOGIN_URL, headers=self._headers) as resp:
+        # 세션 쿠키(JSESSIONID 등) 확보를 위해 메인 페이지를 먼저 방문
+        async with self.session.get(f"{self.BASE}/", headers=self._headers) as resp:
             await resp.text()
 
         login_data = {
@@ -1504,27 +1504,23 @@ class PharmStreetCrawler(BaseCrawler):
             "password": password,
         }
 
+        # 실제로는 일반 폼 제출이 아니라 AJAX(XHR) 호출이며 JSON으로 응답함
         async with self.session.post(
             self.LOGIN_URL, data=login_data,
             headers={
                 **self._headers,
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": f"{self.BASE}/login",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Referer": f"{self.BASE}/",
                 "Origin":  self.BASE,
+                "X-Requested-With": "XMLHttpRequest",
             },
-            allow_redirects=True,
         ) as resp:
-            html     = await resp.text()
-            final_url = str(resp.url)
+            data = await resp.json(content_type=None)
 
-        if "/login" in final_url and "error" in html.lower():
-            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
-
-        if any(p in html for p in ["로그아웃", "logout", "mypage", "마이페이지"]) \
-                or "/login" not in final_url:
+        if str(data.get("retCd", "")) == "Y":
             self.logged_in = True
         else:
-            raise LoginError(f"'{self.site_name}' 로그인 실패 (최종 URL: {final_url})")
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {data.get('retMsg', '알 수 없는 오류')}")
 
     async def verify_login(self) -> bool:
         return self.logged_in
