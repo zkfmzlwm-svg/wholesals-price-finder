@@ -14,12 +14,15 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v1.6 — 스마트팜 상품 목록 결과 페이지 HTML 구조 확인, SmartPharmCrawler.search()
+         파싱 로직을 placeholder에서 실제 셀렉터로 교체. tr#GoodsTR 행에서
+         a.list(상품명)/td.smart_nomal(규격,제조사)/td.smart_money2(공급가)를
+         파싱하고, onclick 속성의 iPageGo(...Key=XXXX...)에서 상세 페이지 Key를
+         추출.
   v1.5 — 스마트팜(smartpharm.co.kr) 로그인/검색 요청 형식 확인, 전용
          SmartPharmCrawler로 승격. 로그인 POST /Login/Login.asp(평문, 암호화
          없음), 검색 GET /Goods/Goods_List.asp(TopSearchKey는 EUC-KR 인코딩
-         필수, TopSearch_CMP_NUM=0002 고정값). 상품 목록 결과 HTML 구조는
-         아직 미검증 — 파싱 셀렉터는 placeholder이며 "사이트 관리 > 수정"에서
-         보정 필요.
+         필수, TopSearch_CMP_NUM=0002 고정값).
   v1.4 — 사이트 4곳 추가(대웅더샵/동아DAPmall/서울약사신협/스마트팜, generic 크롤러).
          샌드박스 네트워크 제한으로 실제 로그인/검색 응답을 확인하지 못해 로그인
          URL·필드명·검색 셀렉터는 placeholder임. "사이트 관리 > 수정"에서 실제
@@ -30,7 +33,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "1.5"
+__version__ = "1.6"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1639,10 +1642,16 @@ class SmartPharmCrawler(BaseCrawler):
       - 세션 쿠키 필요 (미로그인 시 리스트가 비거나 로그인 페이지로 리다이렉트될
         가능성 있음 — 미로그인 상태는 확인 안 됨)
 
-    ⚠️ 상품 목록 결과 페이지의 실제 HTML 구조(상품명/가격 CSS 셀렉터)는 로그인
-    세션에서만 확인 가능해 아직 미검증. 아래 파싱 로직은 다른 사이트의 일반적인
-    패턴을 참고한 placeholder이며, "사이트 관리 > 수정"에서 실제 구조 확인 후
-    보정 필요.
+    상품 목록 결과 (확인됨): 각 상품이 <tr id="GoodsTR"> 행으로 표시되며, 가격까지
+    목록에 바로 노출되어 상세 페이지(Goods_View.asp) 조회 없이 파싱 가능.
+      - a.list                → 상품명
+      - td.smart_nomal (1번째) → 규격 (예: "20ml*5P", "12P", "500ml")
+      - td.smart_nomal (2번째) → 제조사 (비어있을 수 있음)
+      - td.smart_money2        → 공급가 (예: "2,010원")
+      - tr의 onclick 속성 중 iPageGo('GoodsView', '/Goods/Goods_View.asp?Key=XXXX&cmp=')
+        에서 Key를 추출해 상세 페이지 URL 구성 (a 태그 href는 javascript:void(0)이라
+        직접 사용 불가)
+      - img[src] — 이미지 없는 상품은 플레이스홀더(no36.gif)이므로 그 경우는 제외
     """
 
     BASE       = "https://www.smartpharm.co.kr"
@@ -1716,23 +1725,54 @@ class SmartPharmCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         products = []
 
-        # 상품 목록 실제 구조 미검증 — placeholder 셀렉터
-        for item in soup.select(".product-item, .goods-item, tr[data-idx]")[:max_results * 3]:
+        # 상품 행: <tr id="GoodsTR" ... onclick="...iPageGo('GoodsView', '/Goods/Goods_View.asp?Key=XXXX&cmp=');">
+        for row in soup.select('tr[id="GoodsTR"]')[:max_results * 3]:
             try:
-                name_el = item.select_one(".product-name, .goods-name")
-                price_el = item.select_one(".product-price, .goods-price")
-                if not (name_el and price_el):
+                name_el = row.select_one("a.list")
+                if not name_el:
                     continue
                 name = self.clean_text(name_el.get_text())
-                price = self.extract_price(price_el.get_text())
-                if not name or price <= 0:
+                if not name:
                     continue
-                link_el = item.select_one("a[href]")
-                href = link_el.get("href", "") if link_el else ""
-                prod_url = f"{self.BASE}{href}" if href.startswith("/") else (href or search_url)
+
+                # 규격/제조사: td.smart_nomal 2개 (1번째=규격, 2번째=제조사)
+                nomal_tds = row.select("td.smart_nomal")
+                spec = self.clean_text(nomal_tds[0].get_text()) if len(nomal_tds) > 0 else ""
+                maker = self.clean_text(nomal_tds[1].get_text()) if len(nomal_tds) > 1 else ""
+
+                # 공급가: td.smart_money2
+                price_el = row.select_one("td.smart_money2")
+                price = self.extract_price(price_el.get_text()) if price_el else 0
+                if price <= 0:
+                    continue
+
+                # 상세 페이지 Key: onclick 속성에서 추출 (href는 javascript:void(0))
+                onclick = row.get("onclick", "")
+                m = re.search(r"Key=([A-Za-z0-9]+)", onclick)
+                prod_url = f"{self.BASE}/Goods/Goods_View.asp?Key={m.group(1)}&cmp=" if m else search_url
+
+                img_el = row.select_one("img")
+                img_url = None
+                if img_el:
+                    src = img_el.get("src", "")
+                    if src and "no36.gif" not in src:
+                        img_url = f"{self.BASE}{src}" if src.startswith("/") else src
+
+                display_name = f"{name} ({spec})" if spec else name
+
+                extra = {}
+                if maker:
+                    extra["제조사"] = maker
+
                 products.append(Product(
-                    name=name, price=price, unit_price=None,
-                    url=prod_url, site_name=self.site_name, in_stock=True,
+                    name=display_name,
+                    price=price,
+                    unit_price=spec if spec else None,
+                    url=prod_url,
+                    site_name=self.site_name,
+                    image_url=img_url,
+                    in_stock=True,
+                    extra_info=extra,
                 ))
             except Exception:
                 continue
@@ -2019,8 +2059,9 @@ CUPHARM_PRESET = {
     "extra_config": {},
 }
 
-# ── 스마트팜: v1.5에서 로그인/검색 요청 형식 확인됨 (SmartPharmCrawler로 승격) ──
-# 상품 목록 결과의 실제 HTML 구조는 아직 미검증 — SmartPharmCrawler.search() 참고.
+# ── 스마트팜: v1.5에서 로그인/검색 요청 형식 확인, v1.6에서 상품 목록 결과
+# HTML 구조까지 확인됨 (SmartPharmCrawler로 승격). 상세는 SmartPharmCrawler
+# 클래스 docstring 및 search() 참고.
 SMARTPHARM_PRESET = {
     "name": "스마트팜",
     "enabled": True,
