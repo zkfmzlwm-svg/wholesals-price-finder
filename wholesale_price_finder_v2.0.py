@@ -14,6 +14,12 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.4 — 대웅더샵/동아DAPmall을 공유 GenericCrawler 대신 사이트별 전용 클래스
+         (DaewoongTheShopCrawler/DapMallCrawler)로 분리. crawler_type을 각각
+         daewoongtheshop/dapmall로 변경하고 CUSTOM_CRAWLERS에 등록. 이제 내장
+         12개 사이트 전부 자기 자신만의 크롤러 클래스를 가짐. 대웅더샵의
+         로그인/검색 URL·필드명은 v2.3에서 확인된 값을 그대로 사용하며, 검색
+         결과 CSS 셀렉터와 동아DAPmall 전체는 여전히 미검증 placeholder.
   v2.3 — 대웅더샵(the.shop.co.kr / www.shop.co.kr) 로그인·검색 요청 형식 일부
          확인. 로그인 POST https://www.shop.co.kr/front/front/api/auth/login
          (필드 userId/userPwd, 페이로드가 JSON인지 form-urlencoded인지는 미확인),
@@ -51,7 +57,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.3"
+__version__ = "2.4"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1924,6 +1930,186 @@ class CupharmCrawler(BaseCrawler):
         return products[:max_results]
 
 
+class DaewoongTheShopCrawler(BaseCrawler):
+    """
+    대웅더샵 (the.shop.co.kr) 전용 크롤러.
+
+    Next.js SSR 기반 발주 사이트.
+
+    로그인 (일부 확인): POST https://www.shop.co.kr/front/front/api/auth/login
+      - 필드: userId, userPwd
+      - 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이 달라
+        `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
+      - 암호화 라이브러리 미탑재로 평문 전송 추정(HTTPS 의존). payload가
+        JSON인지 form-urlencoded인지는 미확인 — 아래는 form-urlencoded로
+        가정. 로그인이 계속 실패하면 JSON body로 재시도 필요.
+
+    검색 (URL 확인, 목록 구조 미확인):
+      GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
+      - searchKey 옵션: all(통합)/상품명/제조사/보험코드/상품코드/포함성분/ATC
+      - 별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트(가격/규격/
+        판매사)가 그대로 렌더링됨을 확인했으나, 정확한 CSS 셀렉터는 미확인.
+        아래 파싱 셀렉터는 placeholder이며 "사이트 관리 > 수정"에서 실제 값
+        확인 후 보정 필요.
+    """
+
+    BASE       = "https://the.shop.co.kr"
+    LOGIN_BASE = "https://www.shop.co.kr"
+    LOGIN_URL  = "https://www.shop.co.kr/front/front/api/auth/login"
+    SEARCH_URL = "https://the.shop.co.kr/contents/search"
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+
+        await self._ensure_session()
+
+        login_data = {"userId": username, "userPwd": password}
+        async with self.session.post(
+            self.LOGIN_URL, data=login_data,
+            headers={
+                **self._headers,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": self.LOGIN_BASE,
+                "Origin": self.LOGIN_BASE,
+            },
+        ) as resp:
+            await resp.text()
+
+        if not await self.verify_login():
+            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+        self.logged_in = True
+
+    async def verify_login(self) -> bool:
+        await self._ensure_session()
+        return len(self.session.cookie_jar.filter_cookies(YarlURL(self.BASE))) > 0
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+
+        search_url = f"{self.SEARCH_URL}?searchKey=all&searchVal={quote(query)}"
+        async with self.session.get(search_url, headers={
+            **self._headers, "Referer": self.BASE,
+        }) as resp:
+            html = await resp.text()
+
+        soup = BeautifulSoup(html, "html.parser")
+        products = []
+
+        # 상품 목록 CSS 구조 미검증 — placeholder 셀렉터
+        for item in soup.select(".product-item")[:max_results * 3]:
+            try:
+                name_el = item.select_one(".product-name")
+                price_el = item.select_one(".product-price")
+                if not (name_el and price_el):
+                    continue
+                name = self.clean_text(name_el.get_text())
+                price = self.extract_price(price_el.get_text())
+                if not name or price <= 0:
+                    continue
+                link_el = item.select_one("a[href]")
+                href = link_el.get("href", "") if link_el else ""
+                prod_url = f"{self.BASE}{href}" if href.startswith("/") else (href or search_url)
+                img_el = item.select_one("img")
+                img_url = img_el.get("src", "") if img_el else None
+                products.append(Product(
+                    name=name, price=price, unit_price=None,
+                    url=prod_url, site_name=self.site_name, image_url=img_url, in_stock=True,
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
+class DapMallCrawler(BaseCrawler):
+    """
+    동아DAPmall (dapmall.com) 전용 크롤러.
+
+    ⚠️ 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제 로그인 요청/응답,
+    검색 결과 HTML 구조를 직접 확인하지 못했습니다. 로그인 URL/필드명, 검색
+    셀렉터는 다른 사이트의 일반적인 패턴을 참고한 placeholder이며, "사이트
+    관리 > 수정"에서 실제 값 확인 후 보정 필요.
+    """
+
+    BASE       = "https://www.dapmall.com"
+    LOGIN_URL  = "https://www.dapmall.com/auth/login"
+    SEARCH_URL = "https://www.dapmall.com/search"
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+
+        await self._ensure_session()
+
+        login_data = {"user_id": username, "password": password}
+        async with self.session.post(
+            self.LOGIN_URL, data=login_data,
+            headers={
+                **self._headers,
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": self.LOGIN_URL,
+                "Origin": self.BASE,
+            },
+        ) as resp:
+            await resp.text()
+
+        if not await self.verify_login():
+            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+        self.logged_in = True
+
+    async def verify_login(self) -> bool:
+        await self._ensure_session()
+        return len(self.session.cookie_jar.filter_cookies(YarlURL(self.BASE))) > 0
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+
+        search_url = f"{self.SEARCH_URL}?keyword={quote(query)}"
+        async with self.session.get(search_url, headers={
+            **self._headers, "Referer": self.BASE,
+        }) as resp:
+            html = await resp.text()
+
+        soup = BeautifulSoup(html, "html.parser")
+        products = []
+
+        # 검색 결과 HTML 구조 미검증 — placeholder 셀렉터
+        for item in soup.select(".product-item")[:max_results * 3]:
+            try:
+                name_el = item.select_one(".product-name")
+                price_el = item.select_one(".product-price")
+                if not (name_el and price_el):
+                    continue
+                name = self.clean_text(name_el.get_text())
+                price = self.extract_price(price_el.get_text())
+                if not name or price <= 0:
+                    continue
+                link_el = item.select_one("a[href]")
+                href = link_el.get("href", "") if link_el else ""
+                prod_url = f"{self.BASE}{href}" if href.startswith("/") else (href or search_url)
+                img_el = item.select_one("img")
+                img_url = img_el.get("src", "") if img_el else None
+                products.append(Product(
+                    name=name, price=price, unit_price=None,
+                    url=prod_url, site_name=self.site_name, image_url=img_url, in_stock=True,
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -1935,6 +2121,8 @@ CUSTOM_CRAWLERS = {
     "pharmstreet":    PharmStreetCrawler,
     "smartpharm":     SmartPharmCrawler,
     "cupharm":        CupharmCrawler,
+    "daewoongtheshop": DaewoongTheShopCrawler,
+    "dapmall":         DapMallCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -2128,13 +2316,14 @@ PHARMSTREET_PRESET = {
 }
 
 # ── 신규 추가 사이트 (v1.4) ──
-# 주의: 동아DAPmall은 아웃바운드 네트워크가 차단된 샌드박스에서 추가되어 실제
-# 로그인 요청/응답, 검색 결과 HTML 구조를 직접 확인하지 못했습니다. base_url
-# (과 로그인 페이지 URL)만 확정 정보이고, login_url/ID·PW 필드명/검색 CSS
-# 셀렉터는 다른 사이트의 일반적인 패턴을 참고한 placeholder입니다. 앱의
-# "사이트 관리 > 수정" 화면에서 실제 로그인 폼/검색 결과 페이지를 보고 값을
-# 채우면 GenericCrawler로 정상 동작합니다. (필요 시 전용 크롤러 클래스로 승격 가능)
-# 스마트팜은 로그인/검색 요청 형식이 확인되어 SmartPharmCrawler로,
+# 대웅더샵/동아DAPmall은 아웃바운드 네트워크가 차단된 샌드박스에서 추가되어 실제
+# 로그인 요청/응답, 검색 결과 HTML 구조를 직접 확인하지 못했습니다. v2.4에서
+# 공유 GenericCrawler 대신 사이트별 전용 클래스(DaewoongTheShopCrawler/
+# DapMallCrawler)로 분리했지만, 대웅더샵은 로그인/검색 URL·필드명만 실제 페이지
+# 분석으로 확인됐고(아래 주석 참고) 검색 결과 CSS 셀렉터는 여전히 placeholder,
+# 동아DAPmall은 URL·필드명까지 전부 placeholder입니다. 앱의 "사이트 관리 > 수정"
+# 화면에서 실제 로그인 폼/검색 결과 페이지를 보고 값을 채워야 정상 동작합니다.
+# 스마트팜은 로그인/검색/목록 파싱까지 SmartPharmCrawler로,
 # 서울약사신협도 사용자가 직접 확인한 스펙으로 CupharmCrawler로 승격되었습니다
 # (아래 각 preset과 CUSTOM_CRAWLERS 참고).
 #
@@ -2142,34 +2331,34 @@ PHARMSTREET_PRESET = {
 #   로그인: POST https://www.shop.co.kr/front/front/api/auth/login
 #     필드명 userId / userPwd. 암호화 라이브러리(crypto-js 등) 미탑재로
 #     평문 전송 추정(HTTPS 의존). payload가 JSON인지 form-urlencoded인지는
-#     미확인 — 아래는 form_post(form-urlencoded)로 가정한 값이며 실패 시
-#     JSON 방식으로 재시도 필요.
+#     미확인 — DaewoongTheShopCrawler는 form-urlencoded로 가정한 값을 쓰며,
+#     실패 시 JSON 방식으로 재시도 필요.
 #   검색: GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
 #     searchKey 옵션: all(통합)/상품명/제조사/보험코드/상품코드/포함성분/ATC.
 #     별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트(가격/규격/
 #     판매사)가 그대로 렌더링됨을 확인했으나, 정확한 CSS 셀렉터는 미확인이라
-#     아래 product_list 등은 여전히 placeholder임 — "사이트 관리 > 수정"에서
-#     실제 값 보정 필요.
+#     DaewoongTheShopCrawler.search()의 파싱 셀렉터는 여전히 placeholder임 —
+#     "사이트 관리 > 수정"에서 실제 값 보정 필요.
 #   인증 유지: 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이
 #     달라 `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
 DAEWOONG_THESHOP_PRESET = {
     "name": "대웅더샵",
     "enabled": True,
     "builtin": True,
-    "crawler_type": "generic",
+    "crawler_type": "daewoongtheshop",
     "base_url": "https://the.shop.co.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
     "login_config": {
-        "login_url": "https://www.shop.co.kr/front/front/api/auth/login", "login_method": "form_post",
+        "login_url": "https://www.shop.co.kr/front/front/api/auth/login", "login_method": "custom",
         "login_fields": {"userId": "{username}", "userPwd": "{password}"},
         "csrf_selector": None, "csrf_field_name": None,
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
         "search_url_pattern": "/contents/search?searchKey=all&searchVal={query}",
-        "product_list": ".product-item", "product_name": ".product-name",
-        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
     },
     "extra_config": {},
 }
@@ -2178,20 +2367,20 @@ DAPMALL_PRESET = {
     "name": "동아DAPmall",
     "enabled": True,
     "builtin": True,
-    "crawler_type": "generic",
+    "crawler_type": "dapmall",
     "base_url": "https://www.dapmall.com",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
     "login_config": {
-        "login_url": "https://www.dapmall.com/auth/login", "login_method": "form_post",
+        "login_url": "https://www.dapmall.com/auth/login", "login_method": "custom",
         "login_fields": {"user_id": "{username}", "password": "{password}"},
         "csrf_selector": None, "csrf_field_name": None,
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
         "search_url_pattern": "/search?keyword={query}",
-        "product_list": ".product-item", "product_name": ".product-name",
-        "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
     },
     "extra_config": {},
 }

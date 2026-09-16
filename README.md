@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.3
+## 현재 버전: v2.4
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -19,13 +19,16 @@
 | 팜뉴트리션 | 그누보드 PHP | 폼 POST |
 | 드시모네 | Cafe24 | multipart/form-data |
 | 팜스트리트 | JSP | 폼 POST |
-| 대웅더샵 | Generic, Next.js SSR (로그인/검색 URL 확인, 상품목록 셀렉터 미확인) | 폼 POST 추정 (userId/userPwd, JSON 여부 미확인) |
-| 동아DAPmall | Generic (미검증) | 폼 POST (placeholder) |
+| 대웅더샵 | Next.js SSR (로그인/검색 URL 확인, 상품목록 셀렉터 미확인) | 폼 POST 추정 (userId/userPwd, JSON 여부 미확인) |
+| 동아DAPmall | 개별 크롤러 (미검증) | 폼 POST (placeholder) |
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 
-> 동아DAPmall은 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제
-> 로그인/검색 응답을 확인하지 못했습니다. 프로그램 실행 후
+> 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
+> 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장 12개
+> 사이트 전부 자기 자신만의 크롤러 클래스를 가집니다. 다만 동아DAPmall은
+> 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제 로그인/검색 응답을 확인
+> 하지 못했고, 값 자체는 여전히 placeholder입니다. 프로그램 실행 후
 > "사이트 관리 > 수정"에서 실제 로그인 URL, ID/PW input name, 검색 결과 CSS
 > 셀렉터를 확인해 입력해야 정상적으로 동작합니다.
 >
@@ -65,6 +68,12 @@ pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
 ```
 
 ## 변경 이력
+- v2.4 — 대웅더샵/동아DAPmall을 공유 `GenericCrawler` 대신 사이트별 전용
+  클래스(`DaewoongTheShopCrawler`/`DapMallCrawler`)로 분리. `crawler_type`을
+  각각 `daewoongtheshop`/`dapmall`로 변경하고 `CUSTOM_CRAWLERS`에 등록. 이제
+  내장 12개 사이트 전부 자기 자신만의 크롤러 클래스를 가짐. 대웅더샵의
+  로그인/검색 URL·필드명은 v2.3에서 확인된 값을 그대로 사용하며, 검색 결과
+  CSS 셀렉터와 동아DAPmall 전체는 여전히 미검증 placeholder.
 - v2.3 — 대웅더샵(the.shop.co.kr / www.shop.co.kr) 로그인·검색 요청 형식
   일부 확인. 로그인 `POST https://www.shop.co.kr/front/front/api/auth/login`
   (필드 userId/userPwd, JSON/form-urlencoded 여부 미확인), 검색
