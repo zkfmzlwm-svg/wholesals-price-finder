@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v1.0 — Windows GUI
+도매 최저가 비교 프로그램 v2.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v1.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,15 +14,18 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
-  v1.6 — 스마트팜 상품 목록 결과 페이지 HTML 구조 확인, SmartPharmCrawler.search()
-         파싱 로직을 placeholder에서 실제 셀렉터로 교체. tr#GoodsTR 행에서
-         a.list(상품명)/td.smart_nomal(규격,제조사)/td.smart_money2(공급가)를
-         파싱하고, onclick 속성의 iPageGo(...Key=XXXX...)에서 상세 페이지 Key를
-         추출.
-  v1.5 — 스마트팜(smartpharm.co.kr) 로그인/검색 요청 형식 확인, 전용
-         SmartPharmCrawler로 승격. 로그인 POST /Login/Login.asp(평문, 암호화
-         없음), 검색 GET /Goods/Goods_List.asp(TopSearchKey는 EUC-KR 인코딩
-         필수, TopSearch_CMP_NUM=0002 고정값).
+  v2.1 — 스마트팜(smartpharm.co.kr) 로그인/검색/상품목록 파싱 형식 확인, 전용
+         SmartPharmCrawler로 완성. 로그인 POST /Login/Login.asp(UserID/UserPW
+         평문, 암호화 없음), 검색 GET /Goods/Goods_List.asp(TopSearchKey는
+         EUC-KR 인코딩 필수, TopSearch_CMP_NUM=0002 고정값), 목록 파싱은
+         tr#GoodsTR 행에서 a.list(상품명)/td.smart_nomal(규격,제조사)/
+         td.smart_money2(공급가)를 읽고 onclick 속성의 iPageGo(...Key=XXXX...)
+         에서 상세 페이지 Key를 추출.
+  v2.0 — 검색 결과 화면에 사이트별 결과 건수 표시 추가 (0건/오류인 사이트를
+         검색할 때마다 바로 확인 가능 — 사이트 HTML 구조 변경으로 파싱이
+         조용히 깨지는 문제를 사용자가 즉시 알아챌 수 있도록 함).
+         바로팜 로그인 API 주소 변경(404) 및 팜스트리트 로그인 판정 로직
+         (AJAX/JSON 응답 기준) 수정.
   v1.4 — 사이트 4곳 추가(대웅더샵/동아DAPmall/서울약사신협/스마트팜, generic 크롤러).
          샌드박스 네트워크 제한으로 실제 로그인/검색 응답을 확인하지 못해 로그인
          URL·필드명·검색 셀렉터는 placeholder임. "사이트 관리 > 수정"에서 실제
@@ -33,7 +36,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "1.6"
+__version__ = "2.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -2248,6 +2251,12 @@ class App(tk.Tk):
         tk.Label(tab, textvariable=self.status_var, bg=self.BG, fg=self.TEXT2,
                  font=("맑은 고딕", 9), anchor="w").pack(fill="x", padx=20)
 
+        # 사이트별 결과 건수 — 0건/오류인 사이트를 검색할 때마다 바로 확인 가능
+        self.site_status_var = tk.StringVar(value="")
+        tk.Label(tab, textvariable=self.site_status_var, bg=self.BG, fg=self.TEXT2,
+                 font=("맑은 고딕", 8), anchor="w", justify="left",
+                 wraplength=900).pack(fill="x", padx=20, pady=(2, 0))
+
         # 결과 요약 카드
         self.summary_frame = tk.Frame(tab, bg=self.BG)
         self.summary_frame.pack(fill="x", padx=20, pady=(5, 5))
@@ -2525,6 +2534,7 @@ class App(tk.Tk):
             return
 
         self.status_var.set(f"🔍 '{query}' 검색 중... ({len(sites)}개 사이트)")
+        self.site_status_var.set("")
         self.tree.delete(*self.tree.get_children())
         for w in self.summary_frame.winfo_children():
             w.destroy()
@@ -2544,11 +2554,17 @@ class App(tk.Tk):
     def _show_results(self, results, query):
         self._all_products = []
         errors = []
+        site_summary = []
         for r in results:
             if r.error:
                 errors.append(f"{r.site_name}: {r.error}")
+                site_summary.append(f"{r.site_name}:오류⚠")
+            elif not r.products:
+                site_summary.append(f"{r.site_name}:0건⚠")
             else:
                 self._all_products.extend(r.products)
+                site_summary.append(f"{r.site_name}:{len(r.products)}건")
+        self.site_status_var.set("사이트별 결과  " + "  ·  ".join(site_summary))
 
         # 정렬
         sort_key = self.sort_var.get()

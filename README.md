@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v1.6
+## 현재 버전: v2.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -44,24 +44,25 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v1.0.py
+python wholesale_price_finder_v2.0.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v1.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
 ```
 
 ## 변경 이력
-- v1.6 — 스마트팜 상품 목록 결과 페이지 HTML 구조 확인, 파싱 로직을 placeholder에서
-  실제 셀렉터로 교체. `tr#GoodsTR` 행에서 `a.list`(상품명), `td.smart_nomal`
-  (규격/제조사), `td.smart_money2`(공급가)를 파싱하고, `onclick` 속성의
-  `iPageGo(...Key=XXXX...)`에서 상세 페이지 Key를 추출.
-- v1.5 — 스마트팜 로그인/검색 요청 형식 확인, 전용 SmartPharmCrawler로 승격.
-  로그인 `POST /Login/Login.asp`(UserID/UserPW 평문, 암호화 없음, 세션 쿠키
-  인증), 검색 `GET /Goods/Goods_List.asp`(TopSearchKey는 EUC-KR 인코딩 필수,
-  TopSearch_CMP_NUM=0002 고정값).
+- v2.1 — 스마트팜 로그인/검색/상품목록 파싱 형식 확인, 전용 SmartPharmCrawler로
+  완성. 로그인 `POST /Login/Login.asp`(UserID/UserPW 평문, 암호화 없음, 세션
+  쿠키 인증), 검색 `GET /Goods/Goods_List.asp`(TopSearchKey는 EUC-KR 인코딩
+  필수, TopSearch_CMP_NUM=0002 고정값), 목록 파싱은 `tr#GoodsTR` 행에서
+  `a.list`(상품명)/`td.smart_nomal`(규격,제조사)/`td.smart_money2`(공급가)를
+  읽고 `onclick` 속성의 `iPageGo(...Key=XXXX...)`에서 상세 페이지 Key를 추출.
+- v2.0 — 검색 결과 화면에 사이트별 결과 건수 표시 추가 (0건/오류 사이트를
+  검색할 때마다 바로 확인 가능). 바로팜 로그인 API 주소 변경(404) 수정,
+  팜스트리트 로그인 판정 로직을 실제 AJAX/JSON 응답 기준으로 수정.
 - v1.4 — 사이트 4곳 추가: 대웅더샵, 동아DAPmall, 서울약사신협, 스마트팜
   (generic 크롤러, 12사이트). 네트워크 제한으로 미검증 상태이며 로그인 URL/
   필드명/검색 셀렉터는 "사이트 관리 > 수정"에서 보정 필요.
