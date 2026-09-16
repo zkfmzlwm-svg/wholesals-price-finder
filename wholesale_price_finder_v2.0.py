@@ -14,6 +14,13 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.2 — 대웅더샵(the.shop.co.kr / www.shop.co.kr) 로그인·검색 요청 형식 일부
+         확인. 로그인 POST https://www.shop.co.kr/front/front/api/auth/login
+         (필드 userId/userPwd, 페이로드가 JSON인지 form-urlencoded인지는 미확인),
+         검색 GET https://the.shop.co.kr/contents/search?searchKey=all&
+         searchVal={query} (Next.js SSR 풀 페이지 HTML에 상품 리스트가 직접
+         렌더링됨을 확인). 단, 상품 목록 HTML의 정확한 CSS 셀렉터는 아직
+         미확인이라 generic 크롤러 selectors는 여전히 placeholder임.
   v2.1 — 스마트팜(smartpharm.co.kr) 로그인/검색/상품목록 파싱 형식 확인, 전용
          SmartPharmCrawler로 완성. 로그인 POST /Login/Login.asp(UserID/UserPW
          평문, 암호화 없음), 검색 GET /Goods/Goods_List.asp(TopSearchKey는
@@ -36,7 +43,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.1"
+__version__ = "2.2"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1995,6 +2002,21 @@ PHARMSTREET_PRESET = {
 # 값을 채우면 GenericCrawler로 정상 동작합니다. (필요 시 전용 크롤러 클래스로 승격 가능)
 # 스마트팜은 v1.5에서 로그인/검색 요청 형식이 확인되어 SmartPharmCrawler로
 # 승격되었습니다 (아래 별도 섹션 참고).
+#
+# ── 대웅더샵: v2.2에서 로그인/검색 요청 형식 일부 확인 (실제 페이지 분석 기준).
+#   로그인: POST https://www.shop.co.kr/front/front/api/auth/login
+#     필드명 userId / userPwd. 암호화 라이브러리(crypto-js 등) 미탑재로
+#     평문 전송 추정(HTTPS 의존). payload가 JSON인지 form-urlencoded인지는
+#     미확인 — 아래는 form_post(form-urlencoded)로 가정한 값이며 실패 시
+#     JSON 방식으로 재시도 필요.
+#   검색: GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
+#     searchKey 옵션: all(통합)/상품명/제조사/보험코드/상품코드/포함성분/ATC.
+#     별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트(가격/규격/
+#     판매사)가 그대로 렌더링됨을 확인했으나, 정확한 CSS 셀렉터는 미확인이라
+#     아래 product_list 등은 여전히 placeholder임 — "사이트 관리 > 수정"에서
+#     실제 값 보정 필요.
+#   인증 유지: 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이
+#     달라 `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
 DAEWOONG_THESHOP_PRESET = {
     "name": "대웅더샵",
     "enabled": True,
@@ -2004,13 +2026,13 @@ DAEWOONG_THESHOP_PRESET = {
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
     "login_config": {
-        "login_url": "/member/login", "login_method": "form_post",
-        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "login_url": "https://www.shop.co.kr/front/front/api/auth/login", "login_method": "form_post",
+        "login_fields": {"userId": "{username}", "userPwd": "{password}"},
         "csrf_selector": None, "csrf_field_name": None,
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
-        "search_url_pattern": "/search?keyword={query}",
+        "search_url_pattern": "/contents/search?searchKey=all&searchVal={query}",
         "product_list": ".product-item", "product_name": ".product-name",
         "product_price": ".product-price", "product_link": "a[href]", "product_image": "img",
     },
