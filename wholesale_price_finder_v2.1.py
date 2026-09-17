@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v2.0 — Windows GUI
+도매 최저가 비교 프로그램 v2.1 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.1.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,15 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.1 — 사이트 4곳(대웅더샵/동아DAPmall/서울약사신협/스마트팜) 추가로 내장
+         사이트 4개가 crawler_type("generic")을 공유하게 되면서 드러난 버그
+         전체 디버그:
+         - 내장 사이트 자동 복구/구분용 builtin_id 필드 도입. 기존엔 이름 기준
+           매칭이라 사용자가 내장 사이트 이름을 바꾸면 중복 추가되는 문제가 있었음
+         - 구버전(builtin_id 없는) config 마이그레이션 시 generic 내장 사이트
+           4개가 중복 추가되던 경로 차단
+         - "데모 불러오기" 시 로그인 정보 보존 로직이 crawler_type만 보고 매칭해
+           서로 다른 generic 사이트의 로그인 정보가 섞여 들어가던 버그 수정
   v2.0 — 검색 결과 화면에 사이트별 결과 건수 표시 추가 (0건/오류인 사이트를
          검색할 때마다 바로 확인 가능 — 사이트 HTML 구조 변경으로 파싱이
          조용히 깨지는 문제를 사용자가 즉시 알아챌 수 있도록 함).
@@ -29,7 +38,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.0"
+__version__ = "2.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -214,12 +223,24 @@ def load_config() -> dict:
                 site["login_config"] = SITE_TEMPLATE["login_config"].copy()
                 site["requires_login"] = bool(creds.get("username"))
                 migrated = True
+        # builtin_id가 없는 구버전 사이트는 이름으로 역보정
+        # (builtin_id 도입 전 저장된 내장 사이트는 이름이 그대로일 것이므로 이름
+        #  매칭이 안전함 — crawler_type은 여러 내장 사이트가 "generic"을 공유해
+        #  단독으로는 신뢰 불가)
+        builtin_id_by_name = {b["name"]: b["builtin_id"] for b in BUILTIN_SITES}
+        for site in config.get("sites", []):
+            if not site.get("builtin_id"):
+                inferred = builtin_id_by_name.get(site.get("name"))
+                if inferred:
+                    site["builtin_id"] = inferred
+                    migrated = True
+
         # 내장 사이트가 빠져 있으면 자동 추가
-        # (이름 기준 매칭 — 여러 내장 사이트가 같은 crawler_type("generic")을
-        #  공유할 수 있으므로 crawler_type만으로는 개별 사이트 누락을 못 잡음)
-        existing_names = {s.get("name") for s in config.get("sites", [])}
+        # (builtin_id 기준 매칭 — name은 사용자가 수정할 수 있고, crawler_type은
+        #  여러 내장 사이트가 "generic"을 공유할 수 있어 단독으로는 신뢰 불가)
+        existing_ids = {s.get("builtin_id") for s in config.get("sites", []) if s.get("builtin_id")}
         for builtin in BUILTIN_SITES:
-            if builtin["name"] not in existing_names:
+            if builtin["builtin_id"] not in existing_ids:
                 config.setdefault("sites", []).insert(0, copy.deepcopy(builtin))
                 migrated = True
         if migrated:
@@ -1630,6 +1651,7 @@ BAROPHARM_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "baropharm",
+    "builtin_id": "baropharm",
     "base_url": "https://www.baropharm.com",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1653,6 +1675,7 @@ UPHARMMALL_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "upharmmall",
+    "builtin_id": "upharmmall",
     "base_url": "https://www.upharmmall.co.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1679,6 +1702,7 @@ HMPMALL_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "hmpmall",
+    "builtin_id": "hmpmall",
     "base_url": "https://hmpmall.co.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1702,6 +1726,7 @@ PLATPHARM_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "platpharm",
+    "builtin_id": "platpharm",
     "base_url": "https://www.platpharm.co.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1725,6 +1750,7 @@ SAEROPHARM_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "saeropharm",
+    "builtin_id": "saeropharm",
     "base_url": "https://www.saeropharm.com",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1748,6 +1774,7 @@ DESIMONE_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "desimone",
+    "builtin_id": "desimone",
     "base_url": "https://hsaless.cafe24.com",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1771,6 +1798,7 @@ PHARMNUTRITION_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "pharmnutrition",
+    "builtin_id": "pharmnutrition",
     "base_url": "https://www.pharmnutrition.co.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1797,6 +1825,7 @@ PHARMSTREET_PRESET = {
     "enabled": True,
     "builtin": True,
     "crawler_type": "pharmstreet",
+    "builtin_id": "pharmstreet",
     "base_url": "https://www.pharm-street.com",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
@@ -1826,6 +1855,7 @@ DAEWOONG_THESHOP_PRESET = {
     "name": "대웅더샵",
     "enabled": True,
     "builtin": True,
+    "builtin_id": "daewoong_theshop",
     "crawler_type": "generic",
     "base_url": "https://the.shop.co.kr",
     "requires_login": True,
@@ -1848,6 +1878,7 @@ DAPMALL_PRESET = {
     "name": "동아DAPmall",
     "enabled": True,
     "builtin": True,
+    "builtin_id": "dapmall",
     "crawler_type": "generic",
     "base_url": "https://www.dapmall.com",
     "requires_login": True,
@@ -1870,6 +1901,7 @@ CUPHARM_PRESET = {
     "name": "서울약사신협",
     "enabled": True,
     "builtin": True,
+    "builtin_id": "cupharm",
     "crawler_type": "generic",
     "base_url": "https://www.cupharm.kr",
     "requires_login": True,
@@ -1893,6 +1925,7 @@ SMARTPHARM_PRESET = {
     "name": "스마트팜",
     "enabled": True,
     "builtin": True,
+    "builtin_id": "smartpharm",
     "crawler_type": "generic",
     "base_url": "https://www.smartpharm.co.kr",
     "requires_login": True,
@@ -2680,9 +2713,11 @@ class App(tk.Tk):
              "login_config": SITE_TEMPLATE["login_config"].copy(), "selectors": {}, "extra_config": {}},
         ]
         # 기존 내장 사이트의 로그인 정보 보존
+        # (builtin_id로 매칭 — crawler_type만 쓰면 "generic"을 공유하는
+        #  여러 내장 사이트가 서로 다른 사이트의 로그인 정보를 잘못 물려받음)
         for bs in builtin:
             for existing in self.config_data.get("sites", []):
-                if existing.get("crawler_type") == bs["crawler_type"]:
+                if existing.get("builtin_id") == bs["builtin_id"]:
                     bs["credentials"] = existing.get("credentials", bs["credentials"])
                     break
         self.config_data["sites"] = builtin + demos
@@ -2873,6 +2908,8 @@ class SiteDialog(tk.Toplevel):
             site["enabled"] = old_site.get("enabled", True)
             if old_site.get("builtin"):
                 site["builtin"] = True
+                if old_site.get("builtin_id"):
+                    site["builtin_id"] = old_site["builtin_id"]
             self.parent.config_data["sites"][self.edit_idx] = site
         else:
             self.parent.config_data.setdefault("sites", []).append(site)

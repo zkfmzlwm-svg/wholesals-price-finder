@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.0
+## 현재 버전: v2.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -40,16 +40,21 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v2.0.py
+python wholesale_price_finder_v2.1.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v2.1.py
 ```
 
 ## 변경 이력
+- v2.1 — 사이트 4곳 추가로 내장 사이트 4개가 crawler_type("generic")을 공유하게
+  되면서 드러난 버그 전체 디버그: 내장 사이트 구분용 `builtin_id` 필드 도입
+  (이름 변경 시 중복 추가되던 문제 수정), 구버전 config 마이그레이션 시 generic
+  사이트 4개가 중복 추가되던 경로 차단, "데모 불러오기"의 로그인 정보 보존
+  로직이 서로 다른 generic 사이트 정보를 섞던 버그 수정.
 - v2.0 — 검색 결과 화면에 사이트별 결과 건수 표시 추가 (0건/오류 사이트를
   검색할 때마다 바로 확인 가능). 바로팜 로그인 API 주소 변경(404) 수정,
   팜스트리트 로그인 판정 로직을 실제 AJAX/JSON 응답 기준으로 수정.
