@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.4
+## 현재 버전: v2.5
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -58,16 +58,23 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v2.0.py
+python wholesale_price_finder_v2.5.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v2.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v2.5.py
 ```
 
 ## 변경 이력
+- v2.5 — 내장 사이트 식별용 `builtin_id` 필드 도입. v2.1 시점엔 4개 사이트가
+  `crawler_type("generic")`을 공유해 즉시 문제가 됐고, 이후 v2.2~v2.4에서
+  각자 전용 크롤러로 분리되며 crawler_type 충돌 자체는 해소됐지만, 사용자가
+  "사이트 관리 > 수정"에서 바꿀 수 있는 name/crawler_type으로 내장 사이트를
+  식별하던 방식은 여전히 취약(수정 시 중복 추가)했음. 편집 불가능한 고정
+  식별자를 도입해 `load_config()` 자동 복구, 구버전 config 마이그레이션,
+  "데모 불러오기" 로그인 정보 보존 로직 세 곳의 매칭 기준을 통일.
 - v2.4 — 대웅더샵/동아DAPmall을 공유 `GenericCrawler` 대신 사이트별 전용
   클래스(`DaewoongTheShopCrawler`/`DapMallCrawler`)로 분리. `crawler_type`을
   각각 `daewoongtheshop`/`dapmall`로 변경하고 `CUSTOM_CRAWLERS`에 등록. 이제
