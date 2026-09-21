@@ -1838,9 +1838,9 @@ class CupharmCrawler(BaseCrawler):
       - 필드: w14_user_id(사업자번호), w14_user_pwd
       - 실패 응답: alert('비밀번호가 일치하지 않습니다.') 스크립트 포함
       - 성공 응답: w14_user_cd 등 세션 정보 텍스트 + location.href 리다이렉트 스크립트
-      - 비밀번호 클라이언트측 AES 암호화 여부는 미확인 — 우선 평문 전송.
-        (페이지에 crypto-js가 로드되어 있으나 실제 로그인 시 사용 여부는 불명확.
-        로그인이 계속 실패하면 Network 탭에서 w14_user_pwd 값이 평문인지 확인 필요)
+      - 비밀번호 암호화 여부(확인됨): Network 탭에서 w14_user_pwd 값이 입력한
+        비밀번호 그대로 노출됨 — 평문 전송. crypto-js는 로드만 되고 로그인
+        시 실제 사용되지 않음. 현재 코드(평문 전송)가 맞음, 추가 조치 불필요.
 
     검색 (확인됨): GET /order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&...
       - 결과 행: <tr id="order_goods_N" onclick="fun_old_list('의약품코드', idx, '코드',
