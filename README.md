@@ -37,9 +37,10 @@
 > 동아DAPmall은 DevTools 실캡쳐로 로그인(`POST /auth/login`, 필드 siteId/
 > userId/userPw, 평문 전송)과 검색(`GET /prod/search-list/?keywordType=ALL
 > &keyword={query}&keywordMktSeq=`), 검색 결과 상품 li 구조(`li[data-pid]`,
-> `.prod_name`, `.price .selling strong`)까지 확인되어 정상 동작합니다.
-> 다만 로그인 실패(비번 오류) 시 응답 형태와 상품 상세 페이지 링크는 아직
-> 미확인이라 "사이트 관리 > 수정"에서 추가 보정이 필요할 수 있습니다.
+> `.prod_name`, `.price .selling strong`), 로그인 성공(302 리다이렉트)/
+> 실패(200 + 폼 재렌더링) 판별까지 확인되어 정상 동작합니다. 상품 상세
+> 페이지 링크만 아직 미확인이라 "사이트 관리 > 수정"에서 추가 보정이
+> 필요할 수 있습니다.
 >
 > 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
 > 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로

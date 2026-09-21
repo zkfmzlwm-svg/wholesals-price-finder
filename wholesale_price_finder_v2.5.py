@@ -2055,10 +2055,9 @@ class DapMallCrawler(BaseCrawler):
 
     로그인 URL/필드명은 실제 DevTools 캡쳐로 검증됨 (2026-09-21).
     비밀번호는 평문 form-urlencoded로 전송됨 (클라이언트측 암호화 없음).
-
-    ⚠️ 로그인 실패(비번 오류) 시 응답 형태는 아직 미확인 — 성공 케이스의
-    "302 + Location이 /auth/login이 아님"만 근거로 판별 중. 실패 케이스
-    캡쳐 후 verify_login() 보정 필요.
+    성공: 302 + Location이 /auth/login이 아님. 실패(ID/PW 불일치): 200
+    + 로그인 폼 페이지 재렌더링("아이디 또는 패스워드가 일치하지 않습니다.")
+    — 둘 다 실캡쳐로 확인됨.
 
     검색 요청(GET /prod/search-list/?keywordType=ALL&keyword=...&keywordMktSeq=)과
     결과 상품 li 구조(상품명/가격 셀렉터)는 실제 캡쳐로 검증됨 (2026-09-21).
@@ -2373,9 +2372,9 @@ PHARMSTREET_PRESET = {
 # 공유 GenericCrawler 대신 사이트별 전용 클래스(DaewoongTheShopCrawler/
 # DapMallCrawler)로 분리했지만, 대웅더샵은 로그인/검색 URL·필드명만 실제 페이지
 # 분석으로 확인됐고(아래 주석 참고) 검색 결과 CSS 셀렉터는 여전히 placeholder입니다.
-# 동아DAPmall은 이후 DevTools 실캡쳐로 로그인/검색 URL·필드명과 검색 결과
-# 상품 li 구조(상품명/가격 셀렉터)까지 확인됐으나, 로그인 실패 시 응답과
-# 상품 상세 링크는 아직 미검증입니다 (DapMallCrawler 클래스 docstring 참고).
+# 동아DAPmall은 이후 DevTools 실캡쳐로 로그인/검색 URL·필드명, 로그인 성공/
+# 실패 판별, 검색 결과 상품 li 구조(상품명/가격 셀렉터)까지 확인됐으나, 상품
+# 상세 페이지 링크는 아직 미검증입니다 (DapMallCrawler 클래스 docstring 참고).
 # 앱의 "사이트 관리 > 수정" 화면에서 남은 값을 보정하세요.
 # 스마트팜은 로그인/검색/목록 파싱까지 SmartPharmCrawler로,
 # 서울약사신협도 사용자가 직접 확인한 스펙으로 CupharmCrawler로 승격되었습니다
