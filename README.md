@@ -20,23 +20,26 @@
 | 드시모네 | Cafe24 | multipart/form-data |
 | 팜스트리트 | JSP | 폼 POST |
 | 대웅더샵 | Next.js SSR (로그인/검색 URL 확인, 상품목록 셀렉터 미확인) | 폼 POST 추정 (userId/userPwd, JSON 여부 미확인) |
-| 동아DAPmall | 개별 크롤러 (미검증) | 폼 POST (placeholder) |
+| 동아DAPmall | 개별 크롤러 (로그인/검색 URL·필드명, 목록 셀렉터 확인됨) | 폼 POST (평문, userId/userPw) |
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
 > 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장 12개
-> 사이트 전부 자기 자신만의 크롤러 클래스를 가집니다. 다만 동아DAPmall은
-> 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제 로그인/검색 응답을 확인
-> 하지 못했고, 값 자체는 여전히 placeholder입니다. 프로그램 실행 후
-> "사이트 관리 > 수정"에서 실제 로그인 URL, ID/PW input name, 검색 결과 CSS
-> 셀렉터를 확인해 입력해야 정상적으로 동작합니다.
+> 사이트 전부 자기 자신만의 크롤러 클래스를 가집니다.
 >
 > 대웅더샵은 로그인(`POST https://www.shop.co.kr/front/front/api/auth/login`,
 > 필드 userId/userPwd)과 검색(`GET https://the.shop.co.kr/contents/search
 > ?searchKey=all&searchVal={query}`) URL·필드명까지는 확인됐지만, 로그인
 > payload가 JSON인지 form-urlencoded인지와 검색 결과 HTML의 정확한 CSS
 > 셀렉터는 아직 미확인이라 "사이트 관리 > 수정"에서 추가 보정이 필요합니다.
+>
+> 동아DAPmall은 DevTools 실캡쳐로 로그인(`POST /auth/login`, 필드 siteId/
+> userId/userPw, 평문 전송)과 검색(`GET /prod/search-list/?keywordType=ALL
+> &keyword={query}&keywordMktSeq=`), 검색 결과 상품 li 구조(`li[data-pid]`,
+> `.prod_name`, `.price .selling strong`)까지 확인되어 정상 동작합니다.
+> 다만 로그인 실패(비번 오류) 시 응답 형태와 상품 상세 페이지 링크는 아직
+> 미확인이라 "사이트 관리 > 수정"에서 추가 보정이 필요할 수 있습니다.
 >
 > 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
 > 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로

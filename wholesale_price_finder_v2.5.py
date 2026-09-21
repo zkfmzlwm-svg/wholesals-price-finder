@@ -2060,16 +2060,16 @@ class DapMallCrawler(BaseCrawler):
     "302 + Location이 /auth/login이 아님"만 근거로 판별 중. 실패 케이스
     캡쳐 후 verify_login() 보정 필요.
 
-    검색 결과 상품 li 구조(상품명/가격 셀렉터)는 실제 HTML로 검증됨
-    (2026-09-21). 단 SEARCH_URL/keyword 파라미터명은 여전히 미검증
-    placeholder이고, 상품 상세 페이지 링크(href)는 캡쳐 샘플에 없어
-    (장바구니/상세보기 모두 JS 팝업) prod_url을 data-pid 기반으로
-    추정 중 — 실제 상세 URL 패턴 확인 후 보정 필요.
+    검색 요청(GET /prod/search-list/?keywordType=ALL&keyword=...&keywordMktSeq=)과
+    결과 상품 li 구조(상품명/가격 셀렉터)는 실제 캡쳐로 검증됨 (2026-09-21).
+    keywordMktSeq는 빈 값으로도 정상 동작 확인. 다만 상품 상세 페이지 링크
+    (href)는 캡쳐 샘플에 없어(장바구니/상세보기 모두 JS 팝업) prod_url을
+    data-pid 기반으로 추정 중 — 실제 상세 URL 패턴 확인 후 보정 필요.
     """
 
     BASE       = "https://www.dapmall.com"
     LOGIN_URL  = "https://www.dapmall.com/auth/login"
-    SEARCH_URL = "https://www.dapmall.com/search"
+    SEARCH_URL = "https://www.dapmall.com/prod/search-list/"
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -2113,9 +2113,9 @@ class DapMallCrawler(BaseCrawler):
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
 
-        search_url = f"{self.SEARCH_URL}?keyword={quote(query)}"
+        search_url = f"{self.SEARCH_URL}?keywordType=ALL&keyword={quote(query)}&keywordMktSeq="
         async with self.session.get(search_url, headers={
-            **self._headers, "Referer": self.BASE,
+            **self._headers, "Referer": search_url,
         }) as resp:
             html = await resp.text()
 
@@ -2373,10 +2373,10 @@ PHARMSTREET_PRESET = {
 # 공유 GenericCrawler 대신 사이트별 전용 클래스(DaewoongTheShopCrawler/
 # DapMallCrawler)로 분리했지만, 대웅더샵은 로그인/검색 URL·필드명만 실제 페이지
 # 분석으로 확인됐고(아래 주석 참고) 검색 결과 CSS 셀렉터는 여전히 placeholder입니다.
-# 동아DAPmall은 이후 DevTools 실캡쳐로 로그인 URL/필드명과 검색 결과 상품
-# li 구조(상품명/가격 셀렉터)는 확인됐으나, 검색 요청 URL/파라미터명과 로그인
-# 실패 시 응답, 상품 상세 링크는 아직 미검증입니다 (DapMallCrawler 클래스
-# docstring 참고). 앱의 "사이트 관리 > 수정" 화면에서 남은 값을 보정하세요.
+# 동아DAPmall은 이후 DevTools 실캡쳐로 로그인/검색 URL·필드명과 검색 결과
+# 상품 li 구조(상품명/가격 셀렉터)까지 확인됐으나, 로그인 실패 시 응답과
+# 상품 상세 링크는 아직 미검증입니다 (DapMallCrawler 클래스 docstring 참고).
+# 앱의 "사이트 관리 > 수정" 화면에서 남은 값을 보정하세요.
 # 스마트팜은 로그인/검색/목록 파싱까지 SmartPharmCrawler로,
 # 서울약사신협도 사용자가 직접 확인한 스펙으로 CupharmCrawler로 승격되었습니다
 # (아래 각 preset과 CUSTOM_CRAWLERS 참고).
@@ -2434,8 +2434,7 @@ DAPMALL_PRESET = {
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
-        # 검색 요청 URL/파라미터는 아직 미검증 — placeholder
-        "search_url_pattern": "/search?keyword={query}",
+        "search_url_pattern": "/prod/search-list/?keywordType=ALL&keyword={query}&keywordMktSeq=",
         "product_list": "li[data-pid]", "product_name": ".prod_name",
         "product_price": ".price .selling strong",
         "product_link": "", "product_image": "img",
