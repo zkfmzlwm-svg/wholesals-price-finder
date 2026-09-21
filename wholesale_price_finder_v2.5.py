@@ -1958,27 +1958,69 @@ class DaewoongTheShopCrawler(BaseCrawler):
 
     Next.js SSR 기반 발주 사이트.
 
-    로그인 (일부 확인): POST https://www.shop.co.kr/front/front/api/auth/login
-      - 필드: userId, userPwd
+    로그인 (2026-09 DevTools 캡처로 일부 확인): POST
+      https://www.shop.co.kr/front/api/auth/mimsLogin
+      (기존 추정이던 front/front/api/auth/login은 오류 — 실제 엔드포인트명은
+      mimsLogin)
+      - Content-Type: application/json; charset=UTF-8 (JSON 바디 확인됨)
+      - 필드명 확인됨(Payload 탭 캡처): {identifier, password, clientIP,
+        redirectUrl}. userId/userPwd 추정은 틀렸음.
+        - identifier/password: 평문 아이디/비밀번호
+        - clientIP: 클라이언트(브라우저)의 공인 IP 평문. redirectUrl 값이
+          ".../user/mapping/get_secure_check"인 것과 합쳐보면 IP 기반 보안
+          체크(화이트리스트 등)를 하는 사이트일 가능성 있음 — 실제 IP가
+          아니어도 로그인이 되는지 아직 미확인. 아래 구현은 외부 IP 조회
+          서비스(ipify)로 크롤러 실행 PC의 공인 IP를 가져와 채움.
+        - redirectUrl: 캡처된 값 그대로 고정값 사용
+      - 로그인 응답 확인됨:
+        - 성공: {"data": "https://mims-account.shop.co.kr/login/direct?
+          ot=<원타임토큰>&sv=TS"}. 세션 쿠키를 바로 안 주고 SSO 리다이렉트
+          URL을 돌려주므로, 이 URL을 한 번 더 GET해야 실제 세션이 완성됨.
+        - 실패: {"code": "FAIL", "message": "아이디 또는 비밀번호를 잘못
+          입력했습니다."}
       - 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이 달라
         `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
-      - 암호화 라이브러리 미탑재로 평문 전송 추정(HTTPS 의존). payload가
-        JSON인지 form-urlencoded인지는 미확인 — 아래는 form-urlencoded로
-        가정. 로그인이 계속 실패하면 JSON body로 재시도 필요.
+      - 요청 헤더에 X-Requested-With: XMLHttpRequest, Referer:
+        https://www.shop.co.kr/front/intro/login 포함 확인.
 
-    검색 (URL 확인, 목록 구조 미확인):
-      GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
+    검색 (2026-09 DevTools 캡처로 확인): GET
+      https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
       - searchKey 옵션: all(통합)/상품명/제조사/보험코드/상품코드/포함성분/ATC
-      - 별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트(가격/규격/
-        판매사)가 그대로 렌더링됨을 확인했으나, 정확한 CSS 셀렉터는 미확인.
-        아래 파싱 셀렉터는 placeholder이며 "사이트 관리 > 수정"에서 실제 값
-        확인 후 보정 필요.
+      - 별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트가 렌더링됨.
+        react-virtuoso 가상 스크롤을 쓰므로 SSR 응답에는 상단 일부 항목만
+        포함될 수 있음(스크롤 시 추가 항목은 별도 클라이언트 동작으로 로드
+        되는 것으로 추정 — 무한스크롤 API는 미확인).
+      - 상품 카드: div.item_result_box__Xr14g (Next.js CSS Modules 해시라
+        사이트 재배포 시 클래스명이 바뀔 수 있음에 유의)
+        - 품절: 카드에 item_soldout__nJaFL 클래스 추가됨, 가격 대신
+          .item_soldout_tt__dqaF0(텍스트 "품절")가 표시됨
+        - 상품명+규격+단위: .item_title__AU8UC (예: "퓨어킷 항균마스크
+          1매(블랙/유광) L 20EA" — <strong> 3개가 공백으로 이어짐)
+        - 가격: .item_won__tOdO2 (예: "66,000", 품절 시 없음)
+        - 제조사/판매사: .item_info_box__bi2tB .item_name__Bp_mI
+        - 썸네일: .item_thumb__XKNBq img[src] (Next.js 이미지 프록시 URL)
+      - 상품 상세 링크(href)는 카드에 없음 — React 클릭 핸들러로 우측
+        패널(도매처별 가격 비교)을 갱신하는 구조라 정적 HTML만으로는
+        개별 상품 URL을 구성할 수 없음. url 필드는 검색 페이지 URL로 대체.
+      - 우측 상세 패널(search-product-item_list__* 등, 도매처별 개별가/
+        재고)은 특정 상품 클릭 시에만 채워지는 것으로 보여 전체 상품
+        목록을 순회하는 이 크롤러 구조에서는 사용하지 않음.
     """
 
-    BASE       = "https://the.shop.co.kr"
-    LOGIN_BASE = "https://www.shop.co.kr"
-    LOGIN_URL  = "https://www.shop.co.kr/front/front/api/auth/login"
-    SEARCH_URL = "https://the.shop.co.kr/contents/search"
+    BASE         = "https://the.shop.co.kr"
+    LOGIN_BASE   = "https://www.shop.co.kr"
+    LOGIN_URL    = "https://www.shop.co.kr/front/api/auth/mimsLogin"
+    SEARCH_URL   = "https://the.shop.co.kr/contents/search"
+    REDIRECT_URL = "https://www.shop.co.kr/front/api/theshop/user/mapping/get_secure_check"
+    IP_ECHO_URL  = "https://api.ipify.org?format=json"
+
+    async def _get_client_ip(self) -> str:
+        try:
+            async with self.session.get(self.IP_ECHO_URL, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                data = await r.json(content_type=None)
+                return data.get("ip", "")
+        except Exception:
+            return ""
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -1990,17 +2032,37 @@ class DaewoongTheShopCrawler(BaseCrawler):
 
         await self._ensure_session()
 
-        login_data = {"userId": username, "userPwd": password}
+        client_ip = await self._get_client_ip()
+        login_data = {
+            "identifier": username,
+            "password": password,
+            "clientIP": client_ip,
+            "redirectUrl": self.REDIRECT_URL,
+        }
         async with self.session.post(
-            self.LOGIN_URL, data=login_data,
+            self.LOGIN_URL, json=login_data,
             headers={
                 **self._headers,
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": self.LOGIN_BASE,
+                "Referer": f"{self.LOGIN_BASE}/front/intro/login",
                 "Origin": self.LOGIN_BASE,
+                "X-Requested-With": "XMLHttpRequest",
             },
         ) as resp:
-            await resp.text()
+            resp_json = await resp.json(content_type=None)
+
+        # 실패: {"code": "FAIL", "message": "아이디 또는 비밀번호를 잘못..."}
+        # 성공: 세션 쿠키를 바로 주지 않고 SSO 리다이렉트 URL을 data
+        #       필드로 반환함 (mims-account.shop.co.kr/login/direct?ot=...).
+        if isinstance(resp_json, dict) and resp_json.get("code") == "FAIL":
+            msg = resp_json.get("message", "")
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
+
+        sso_url = resp_json.get("data") if isinstance(resp_json, dict) else None
+        if not sso_url or not str(sso_url).startswith("http"):
+            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+
+        async with self.session.get(sso_url, headers=self._headers) as sso_resp:
+            await sso_resp.text()
 
         if not await self.verify_login():
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
@@ -2022,25 +2084,42 @@ class DaewoongTheShopCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         products = []
 
-        # 상품 목록 CSS 구조 미검증 — placeholder 셀렉터
-        for item in soup.select(".product-item")[:max_results * 3]:
+        # 상품 카드: div.item_result_box__Xr14g (확인됨)
+        for item in soup.select("div.item_result_box__Xr14g")[:max_results * 3]:
             try:
-                name_el = item.select_one(".product-name")
-                price_el = item.select_one(".product-price")
-                if not (name_el and price_el):
+                title_el = item.select_one(".item_title__AU8UC")
+                name = self.clean_text(title_el.get_text()) if title_el else ""
+                if not name:
                     continue
-                name = self.clean_text(name_el.get_text())
-                price = self.extract_price(price_el.get_text())
-                if not name or price <= 0:
-                    continue
-                link_el = item.select_one("a[href]")
-                href = link_el.get("href", "") if link_el else ""
-                prod_url = f"{self.BASE}{href}" if href.startswith("/") else (href or search_url)
-                img_el = item.select_one("img")
+
+                is_soldout = "item_soldout__nJaFL" in item.get("class", [])
+
+                price = 0
+                price_el = item.select_one(".item_won__tOdO2")
+                if price_el:
+                    price = self.extract_price(price_el.get_text())
+
+                maker_el = item.select_one(".item_info_box__bi2tB .item_name__Bp_mI")
+                maker = self.clean_text(maker_el.get_text()) if maker_el else ""
+
+                img_el = item.select_one(".item_thumb__XKNBq img")
                 img_url = img_el.get("src", "") if img_el else None
+                if img_url and img_url.startswith("/"):
+                    img_url = f"{self.BASE}{img_url}"
+
+                extra = {}
+                if maker:
+                    extra["제조사"] = maker
+
                 products.append(Product(
-                    name=name, price=price, unit_price=None,
-                    url=prod_url, site_name=self.site_name, image_url=img_url, in_stock=True,
+                    name=name,
+                    price=price,
+                    unit_price=None,
+                    url=search_url,
+                    site_name=self.site_name,
+                    image_url=img_url,
+                    in_stock=(not is_soldout) and price > 0,
+                    extra_info=extra,
                 ))
             except Exception:
                 continue
