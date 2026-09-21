@@ -2053,10 +2053,13 @@ class DapMallCrawler(BaseCrawler):
     """
     동아DAPmall (dapmall.com) 전용 크롤러.
 
-    ⚠️ 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제 로그인 요청/응답,
-    검색 결과 HTML 구조를 직접 확인하지 못했습니다. 로그인 URL/필드명, 검색
-    셀렉터는 다른 사이트의 일반적인 패턴을 참고한 placeholder이며, "사이트
-    관리 > 수정"에서 실제 값 확인 후 보정 필요.
+    로그인 URL/필드명은 실제 DevTools 캡쳐로 검증됨 (2026-09-21).
+    비밀번호는 평문 form-urlencoded로 전송됨 (클라이언트측 암호화 없음).
+
+    ⚠️ 로그인 실패(비번 오류) 시 응답 형태는 아직 미확인 — 성공 케이스의
+    "302 + Location이 /auth/login이 아님"만 근거로 판별 중. 실패 케이스
+    캡쳐 후 verify_login() 보정 필요. 검색 결과 HTML 구조(셀렉터)도 미검증
+    placeholder이며 실제 검색 응답 확인 후 보정 필요.
     """
 
     BASE       = "https://www.dapmall.com"
@@ -2073,19 +2076,28 @@ class DapMallCrawler(BaseCrawler):
 
         await self._ensure_session()
 
-        login_data = {"user_id": username, "password": password}
+        login_data = {
+            "redirectUrl": "",
+            "siteId": "donga",
+            "userId": username,
+            "userPw": password,
+            "isSaveYn": "true",
+            "_isSaveYn": "on",
+        }
         async with self.session.post(
-            self.LOGIN_URL, data=login_data,
+            f"{self.LOGIN_URL}?_SITE_ID=donga", data=login_data,
+            allow_redirects=False,
             headers={
                 **self._headers,
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": self.LOGIN_URL,
+                "Referer": f"{self.LOGIN_URL}?_SITE_ID=donga",
                 "Origin": self.BASE,
             },
         ) as resp:
-            await resp.text()
+            location = resp.headers.get("Location", "")
+            login_ok = resp.status in (302, 303) and "/auth/login" not in location
 
-        if not await self.verify_login():
+        if not login_ok:
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
         self.logged_in = True
 
