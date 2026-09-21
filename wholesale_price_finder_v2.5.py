@@ -1963,8 +1963,17 @@ class DaewoongTheShopCrawler(BaseCrawler):
       (기존 추정이던 front/front/api/auth/login은 오류 — 실제 엔드포인트명은
       mimsLogin)
       - Content-Type: application/json; charset=UTF-8 (JSON 바디 확인됨)
-      - 필드명(userId/userPwd 추정)과 로그인 성공/실패 판별 응답 구조는
-        여전히 미확인 — Payload/Response 탭 캡처 필요
+      - 필드명 확인됨(Payload 탭 캡처): {identifier, password, clientIP,
+        redirectUrl}. userId/userPwd 추정은 틀렸음.
+        - identifier/password: 평문 아이디/비밀번호
+        - clientIP: 클라이언트(브라우저)의 공인 IP 평문. redirectUrl 값이
+          ".../user/mapping/get_secure_check"인 것과 합쳐보면 IP 기반 보안
+          체크(화이트리스트 등)를 하는 사이트일 가능성 있음 — 실제 IP가
+          아니어도 로그인이 되는지 아직 미확인. 아래 구현은 외부 IP 조회
+          서비스(ipify)로 크롤러 실행 PC의 공인 IP를 가져와 채움.
+        - redirectUrl: 캡처된 값 그대로 고정값 사용
+      - 로그인 성공/실패 판별 응답(Response 탭) 구조는 여전히 미확인 —
+        verify_login()은 우선 쿠키 존재 여부로 임시 판별 중
       - 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이 달라
         `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
       - 요청 헤더에 X-Requested-With: XMLHttpRequest, Referer:
@@ -1979,10 +1988,20 @@ class DaewoongTheShopCrawler(BaseCrawler):
         확인 후 보정 필요.
     """
 
-    BASE       = "https://the.shop.co.kr"
-    LOGIN_BASE = "https://www.shop.co.kr"
-    LOGIN_URL  = "https://www.shop.co.kr/front/api/auth/mimsLogin"
-    SEARCH_URL = "https://the.shop.co.kr/contents/search"
+    BASE         = "https://the.shop.co.kr"
+    LOGIN_BASE   = "https://www.shop.co.kr"
+    LOGIN_URL    = "https://www.shop.co.kr/front/api/auth/mimsLogin"
+    SEARCH_URL   = "https://the.shop.co.kr/contents/search"
+    REDIRECT_URL = "https://www.shop.co.kr/front/api/theshop/user/mapping/get_secure_check"
+    IP_ECHO_URL  = "https://api.ipify.org?format=json"
+
+    async def _get_client_ip(self) -> str:
+        try:
+            async with self.session.get(self.IP_ECHO_URL, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                data = await r.json(content_type=None)
+                return data.get("ip", "")
+        except Exception:
+            return ""
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -1994,8 +2013,13 @@ class DaewoongTheShopCrawler(BaseCrawler):
 
         await self._ensure_session()
 
-        # 필드명(userId/userPwd)은 미확인 — Payload 탭 캡처 후 확정 필요
-        login_data = {"userId": username, "userPwd": password}
+        client_ip = await self._get_client_ip()
+        login_data = {
+            "identifier": username,
+            "password": password,
+            "clientIP": client_ip,
+            "redirectUrl": self.REDIRECT_URL,
+        }
         async with self.session.post(
             self.LOGIN_URL, json=login_data,
             headers={
