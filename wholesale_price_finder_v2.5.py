@@ -1958,13 +1958,17 @@ class DaewoongTheShopCrawler(BaseCrawler):
 
     Next.js SSR 기반 발주 사이트.
 
-    로그인 (일부 확인): POST https://www.shop.co.kr/front/front/api/auth/login
-      - 필드: userId, userPwd
+    로그인 (2026-09 DevTools 캡처로 일부 확인): POST
+      https://www.shop.co.kr/front/api/auth/mimsLogin
+      (기존 추정이던 front/front/api/auth/login은 오류 — 실제 엔드포인트명은
+      mimsLogin)
+      - Content-Type: application/json; charset=UTF-8 (JSON 바디 확인됨)
+      - 필드명(userId/userPwd 추정)과 로그인 성공/실패 판별 응답 구조는
+        여전히 미확인 — Payload/Response 탭 캡처 필요
       - 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이 달라
         `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
-      - 암호화 라이브러리 미탑재로 평문 전송 추정(HTTPS 의존). payload가
-        JSON인지 form-urlencoded인지는 미확인 — 아래는 form-urlencoded로
-        가정. 로그인이 계속 실패하면 JSON body로 재시도 필요.
+      - 요청 헤더에 X-Requested-With: XMLHttpRequest, Referer:
+        https://www.shop.co.kr/front/intro/login 포함 확인.
 
     검색 (URL 확인, 목록 구조 미확인):
       GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
@@ -1977,7 +1981,7 @@ class DaewoongTheShopCrawler(BaseCrawler):
 
     BASE       = "https://the.shop.co.kr"
     LOGIN_BASE = "https://www.shop.co.kr"
-    LOGIN_URL  = "https://www.shop.co.kr/front/front/api/auth/login"
+    LOGIN_URL  = "https://www.shop.co.kr/front/api/auth/mimsLogin"
     SEARCH_URL = "https://the.shop.co.kr/contents/search"
 
     async def login(self):
@@ -1990,14 +1994,15 @@ class DaewoongTheShopCrawler(BaseCrawler):
 
         await self._ensure_session()
 
+        # 필드명(userId/userPwd)은 미확인 — Payload 탭 캡처 후 확정 필요
         login_data = {"userId": username, "userPwd": password}
         async with self.session.post(
-            self.LOGIN_URL, data=login_data,
+            self.LOGIN_URL, json=login_data,
             headers={
                 **self._headers,
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": self.LOGIN_BASE,
+                "Referer": f"{self.LOGIN_BASE}/front/intro/login",
                 "Origin": self.LOGIN_BASE,
+                "X-Requested-With": "XMLHttpRequest",
             },
         ) as resp:
             await resp.text()
