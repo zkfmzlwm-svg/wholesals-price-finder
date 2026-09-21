@@ -2061,9 +2061,10 @@ class DapMallCrawler(BaseCrawler):
 
     검색 요청(GET /prod/search-list/?keywordType=ALL&keyword=...&keywordMktSeq=)과
     결과 상품 li 구조(상품명/가격 셀렉터)는 실제 캡쳐로 검증됨 (2026-09-21).
-    keywordMktSeq는 빈 값으로도 정상 동작 확인. 다만 상품 상세 페이지 링크
-    (href)는 캡쳐 샘플에 없어(장바구니/상세보기 모두 JS 팝업) prod_url을
-    data-pid 기반으로 추정 중 — 실제 상세 URL 패턴 확인 후 보정 필요.
+    keywordMktSeq는 빈 값으로도 정상 동작 확인. 상품 클릭 시 페이지 이동이
+    아니라 POST /prod/detail/{pid}로 JSON을 받아 팝업 렌더링하는 방식임을
+    확인 — 브라우저로 바로 열 수 있는 GET 상세페이지가 없어 prod_url은
+    검색결과 페이지 URL로 대체. 이제 로그인·검색·파싱 전 항목 검증 완료.
     """
 
     BASE       = "https://www.dapmall.com"
@@ -2121,9 +2122,10 @@ class DapMallCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         products = []
 
-        # 상품 li 구조는 실제 응답으로 검증됨 (2026-09-21). 단, 상품 상세
-        # 페이지 링크(href)는 캡쳐된 샘플에 없어서(장바구니/상세보기 모두
-        # javascript:; 팝업) prod_url은 data-pid 기반 추정이며 미검증.
+        # 상품 li 구조는 실제 응답으로 검증됨 (2026-09-21). 상품 클릭 시
+        # 페이지 이동 없이 POST /prod/detail/{pid}로 JSON을 받아 팝업
+        # 렌더링하는 방식이라(브라우저로 바로 열 수 있는 GET 상세페이지가
+        # 없음) prod_url은 검색결과 페이지 URL로 대체.
         for item in soup.select("li[data-pid]")[:max_results * 3]:
             try:
                 name_el = item.select_one(".prod_name")
@@ -2134,8 +2136,7 @@ class DapMallCrawler(BaseCrawler):
                 price = self.extract_price(price_el.get_text())
                 if not name or price <= 0:
                     continue
-                pid = item.get("data-pid", "")
-                prod_url = f"{self.BASE}/goods/view?pid={pid}" if pid else search_url
+                prod_url = search_url
                 img_el = item.select_one("img")
                 img_src = img_el.get("src", "") if img_el else ""
                 img_url = self.full_url(img_src) if img_src else None
@@ -2373,9 +2374,8 @@ PHARMSTREET_PRESET = {
 # DapMallCrawler)로 분리했지만, 대웅더샵은 로그인/검색 URL·필드명만 실제 페이지
 # 분석으로 확인됐고(아래 주석 참고) 검색 결과 CSS 셀렉터는 여전히 placeholder입니다.
 # 동아DAPmall은 이후 DevTools 실캡쳐로 로그인/검색 URL·필드명, 로그인 성공/
-# 실패 판별, 검색 결과 상품 li 구조(상품명/가격 셀렉터)까지 확인됐으나, 상품
-# 상세 페이지 링크는 아직 미검증입니다 (DapMallCrawler 클래스 docstring 참고).
-# 앱의 "사이트 관리 > 수정" 화면에서 남은 값을 보정하세요.
+# 실패 판별, 검색 결과 상품 li 구조(상품명/가격 셀렉터)까지 전부 검증되어
+# DapMallCrawler가 정상 동작합니다 (상세 내용은 클래스 docstring 참고).
 # 스마트팜은 로그인/검색/목록 파싱까지 SmartPharmCrawler로,
 # 서울약사신협도 사용자가 직접 확인한 스펙으로 CupharmCrawler로 승격되었습니다
 # (아래 각 preset과 CUSTOM_CRAWLERS 참고).

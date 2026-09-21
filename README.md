@@ -20,7 +20,7 @@
 | 드시모네 | Cafe24 | multipart/form-data |
 | 팜스트리트 | JSP | 폼 POST |
 | 대웅더샵 | Next.js SSR (로그인/검색 URL 확인, 상품목록 셀렉터 미확인) | 폼 POST 추정 (userId/userPwd, JSON 여부 미확인) |
-| 동아DAPmall | 개별 크롤러 (로그인/검색 URL·필드명, 목록 셀렉터 확인됨) | 폼 POST (평문, userId/userPw) |
+| 동아DAPmall | 개별 크롤러 (로그인/검색/파싱 전 항목 검증 완료) | 폼 POST (평문, userId/userPw) |
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 
@@ -38,9 +38,9 @@
 > userId/userPw, 평문 전송)과 검색(`GET /prod/search-list/?keywordType=ALL
 > &keyword={query}&keywordMktSeq=`), 검색 결과 상품 li 구조(`li[data-pid]`,
 > `.prod_name`, `.price .selling strong`), 로그인 성공(302 리다이렉트)/
-> 실패(200 + 폼 재렌더링) 판별까지 확인되어 정상 동작합니다. 상품 상세
-> 페이지 링크만 아직 미확인이라 "사이트 관리 > 수정"에서 추가 보정이
-> 필요할 수 있습니다.
+> 실패(200 + 폼 재렌더링) 판별까지 전부 확인되어 정상 동작합니다. 상품
+> 클릭 시 페이지 이동 없이 `POST /prod/detail/{pid}` JSON 팝업으로 뜨는
+> 구조라 GET 상세페이지가 없어, 상품 링크는 검색결과 페이지 URL로 대체.
 >
 > 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
 > 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로
