@@ -2053,15 +2053,23 @@ class DapMallCrawler(BaseCrawler):
     """
     동아DAPmall (dapmall.com) 전용 크롤러.
 
-    ⚠️ 아웃바운드 네트워크가 제한된 환경에서 추가되어 실제 로그인 요청/응답,
-    검색 결과 HTML 구조를 직접 확인하지 못했습니다. 로그인 URL/필드명, 검색
-    셀렉터는 다른 사이트의 일반적인 패턴을 참고한 placeholder이며, "사이트
-    관리 > 수정"에서 실제 값 확인 후 보정 필요.
+    로그인 URL/필드명은 실제 DevTools 캡쳐로 검증됨 (2026-09-21).
+    비밀번호는 평문 form-urlencoded로 전송됨 (클라이언트측 암호화 없음).
+    성공: 302 + Location이 /auth/login이 아님. 실패(ID/PW 불일치): 200
+    + 로그인 폼 페이지 재렌더링("아이디 또는 패스워드가 일치하지 않습니다.")
+    — 둘 다 실캡쳐로 확인됨.
+
+    검색 요청(GET /prod/search-list/?keywordType=ALL&keyword=...&keywordMktSeq=)과
+    결과 상품 li 구조(상품명/가격 셀렉터)는 실제 캡쳐로 검증됨 (2026-09-21).
+    keywordMktSeq는 빈 값으로도 정상 동작 확인. 상품 클릭 시 페이지 이동이
+    아니라 POST /prod/detail/{pid}로 JSON을 받아 팝업 렌더링하는 방식임을
+    확인 — 브라우저로 바로 열 수 있는 GET 상세페이지가 없어 prod_url은
+    검색결과 페이지 URL로 대체. 이제 로그인·검색·파싱 전 항목 검증 완료.
     """
 
     BASE       = "https://www.dapmall.com"
     LOGIN_URL  = "https://www.dapmall.com/auth/login"
-    SEARCH_URL = "https://www.dapmall.com/search"
+    SEARCH_URL = "https://www.dapmall.com/prod/search-list/"
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -2073,19 +2081,28 @@ class DapMallCrawler(BaseCrawler):
 
         await self._ensure_session()
 
-        login_data = {"user_id": username, "password": password}
+        login_data = {
+            "redirectUrl": "",
+            "siteId": "donga",
+            "userId": username,
+            "userPw": password,
+            "isSaveYn": "true",
+            "_isSaveYn": "on",
+        }
         async with self.session.post(
-            self.LOGIN_URL, data=login_data,
+            f"{self.LOGIN_URL}?_SITE_ID=donga", data=login_data,
+            allow_redirects=False,
             headers={
                 **self._headers,
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": self.LOGIN_URL,
+                "Referer": f"{self.LOGIN_URL}?_SITE_ID=donga",
                 "Origin": self.BASE,
             },
         ) as resp:
-            await resp.text()
+            location = resp.headers.get("Location", "")
+            login_ok = resp.status in (302, 303) and "/auth/login" not in location
 
-        if not await self.verify_login():
+        if not login_ok:
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
         self.logged_in = True
 
@@ -2096,34 +2113,39 @@ class DapMallCrawler(BaseCrawler):
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
 
-        search_url = f"{self.SEARCH_URL}?keyword={quote(query)}"
+        search_url = f"{self.SEARCH_URL}?keywordType=ALL&keyword={quote(query)}&keywordMktSeq="
         async with self.session.get(search_url, headers={
-            **self._headers, "Referer": self.BASE,
+            **self._headers, "Referer": search_url,
         }) as resp:
             html = await resp.text()
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
 
-        # 검색 결과 HTML 구조 미검증 — placeholder 셀렉터
-        for item in soup.select(".product-item")[:max_results * 3]:
+        # 상품 li 구조는 실제 응답으로 검증됨 (2026-09-21). 상품 클릭 시
+        # 페이지 이동 없이 POST /prod/detail/{pid}로 JSON을 받아 팝업
+        # 렌더링하는 방식이라(브라우저로 바로 열 수 있는 GET 상세페이지가
+        # 없음) prod_url은 검색결과 페이지 URL로 대체.
+        for item in soup.select("li[data-pid]")[:max_results * 3]:
             try:
-                name_el = item.select_one(".product-name")
-                price_el = item.select_one(".product-price")
+                name_el = item.select_one(".prod_name")
+                price_el = item.select_one(".price .selling strong")
                 if not (name_el and price_el):
                     continue
                 name = self.clean_text(name_el.get_text())
                 price = self.extract_price(price_el.get_text())
                 if not name or price <= 0:
                     continue
-                link_el = item.select_one("a[href]")
-                href = link_el.get("href", "") if link_el else ""
-                prod_url = f"{self.BASE}{href}" if href.startswith("/") else (href or search_url)
+                prod_url = search_url
                 img_el = item.select_one("img")
-                img_url = img_el.get("src", "") if img_el else None
+                img_src = img_el.get("src", "") if img_el else ""
+                img_url = self.full_url(img_src) if img_src else None
+                qty_el = item.select_one("input.quantity")
+                stock_qty = qty_el.get("data-stockqty", "") if qty_el else ""
+                in_stock = stock_qty == "" or int(stock_qty or 0) > 0
                 products.append(Product(
                     name=name, price=price, unit_price=None,
-                    url=prod_url, site_name=self.site_name, image_url=img_url, in_stock=True,
+                    url=prod_url, site_name=self.site_name, image_url=img_url, in_stock=in_stock,
                 ))
             except Exception:
                 continue
@@ -2350,9 +2372,10 @@ PHARMSTREET_PRESET = {
 # 로그인 요청/응답, 검색 결과 HTML 구조를 직접 확인하지 못했습니다. v2.4에서
 # 공유 GenericCrawler 대신 사이트별 전용 클래스(DaewoongTheShopCrawler/
 # DapMallCrawler)로 분리했지만, 대웅더샵은 로그인/검색 URL·필드명만 실제 페이지
-# 분석으로 확인됐고(아래 주석 참고) 검색 결과 CSS 셀렉터는 여전히 placeholder,
-# 동아DAPmall은 URL·필드명까지 전부 placeholder입니다. 앱의 "사이트 관리 > 수정"
-# 화면에서 실제 로그인 폼/검색 결과 페이지를 보고 값을 채워야 정상 동작합니다.
+# 분석으로 확인됐고(아래 주석 참고) 검색 결과 CSS 셀렉터는 여전히 placeholder입니다.
+# 동아DAPmall은 이후 DevTools 실캡쳐로 로그인/검색 URL·필드명, 로그인 성공/
+# 실패 판별, 검색 결과 상품 li 구조(상품명/가격 셀렉터)까지 전부 검증되어
+# DapMallCrawler가 정상 동작합니다 (상세 내용은 클래스 docstring 참고).
 # 스마트팜은 로그인/검색/목록 파싱까지 SmartPharmCrawler로,
 # 서울약사신협도 사용자가 직접 확인한 스펙으로 CupharmCrawler로 승격되었습니다
 # (아래 각 preset과 CUSTOM_CRAWLERS 참고).
@@ -2405,14 +2428,15 @@ DAPMALL_PRESET = {
     "credentials": {"username": "", "password_encrypted": ""},
     "login_config": {
         "login_url": "https://www.dapmall.com/auth/login", "login_method": "custom",
-        "login_fields": {"user_id": "{username}", "password": "{password}"},
+        "login_fields": {"siteId": "donga", "userId": "{username}", "userPw": "{password}"},
         "csrf_selector": None, "csrf_field_name": None,
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
-        "search_url_pattern": "/search?keyword={query}",
-        "product_list": "", "product_name": "", "product_price": "",
-        "product_link": "", "product_image": "",
+        "search_url_pattern": "/prod/search-list/?keywordType=ALL&keyword={query}&keywordMktSeq=",
+        "product_list": "li[data-pid]", "product_name": ".prod_name",
+        "product_price": ".price .selling strong",
+        "product_link": "", "product_image": "img",
     },
     "extra_config": {},
 }
