@@ -1983,13 +1983,28 @@ class DaewoongTheShopCrawler(BaseCrawler):
       - 요청 헤더에 X-Requested-With: XMLHttpRequest, Referer:
         https://www.shop.co.kr/front/intro/login 포함 확인.
 
-    검색 (URL 확인, 목록 구조 미확인):
-      GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
+    검색 (2026-09 DevTools 캡처로 확인): GET
+      https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
       - searchKey 옵션: all(통합)/상품명/제조사/보험코드/상품코드/포함성분/ATC
-      - 별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트(가격/규격/
-        판매사)가 그대로 렌더링됨을 확인했으나, 정확한 CSS 셀렉터는 미확인.
-        아래 파싱 셀렉터는 placeholder이며 "사이트 관리 > 수정"에서 실제 값
-        확인 후 보정 필요.
+      - 별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트가 렌더링됨.
+        react-virtuoso 가상 스크롤을 쓰므로 SSR 응답에는 상단 일부 항목만
+        포함될 수 있음(스크롤 시 추가 항목은 별도 클라이언트 동작으로 로드
+        되는 것으로 추정 — 무한스크롤 API는 미확인).
+      - 상품 카드: div.item_result_box__Xr14g (Next.js CSS Modules 해시라
+        사이트 재배포 시 클래스명이 바뀔 수 있음에 유의)
+        - 품절: 카드에 item_soldout__nJaFL 클래스 추가됨, 가격 대신
+          .item_soldout_tt__dqaF0(텍스트 "품절")가 표시됨
+        - 상품명+규격+단위: .item_title__AU8UC (예: "퓨어킷 항균마스크
+          1매(블랙/유광) L 20EA" — <strong> 3개가 공백으로 이어짐)
+        - 가격: .item_won__tOdO2 (예: "66,000", 품절 시 없음)
+        - 제조사/판매사: .item_info_box__bi2tB .item_name__Bp_mI
+        - 썸네일: .item_thumb__XKNBq img[src] (Next.js 이미지 프록시 URL)
+      - 상품 상세 링크(href)는 카드에 없음 — React 클릭 핸들러로 우측
+        패널(도매처별 가격 비교)을 갱신하는 구조라 정적 HTML만으로는
+        개별 상품 URL을 구성할 수 없음. url 필드는 검색 페이지 URL로 대체.
+      - 우측 상세 패널(search-product-item_list__* 등, 도매처별 개별가/
+        재고)은 특정 상품 클릭 시에만 채워지는 것으로 보여 전체 상품
+        목록을 순회하는 이 크롤러 구조에서는 사용하지 않음.
     """
 
     BASE         = "https://the.shop.co.kr"
@@ -2069,25 +2084,42 @@ class DaewoongTheShopCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         products = []
 
-        # 상품 목록 CSS 구조 미검증 — placeholder 셀렉터
-        for item in soup.select(".product-item")[:max_results * 3]:
+        # 상품 카드: div.item_result_box__Xr14g (확인됨)
+        for item in soup.select("div.item_result_box__Xr14g")[:max_results * 3]:
             try:
-                name_el = item.select_one(".product-name")
-                price_el = item.select_one(".product-price")
-                if not (name_el and price_el):
+                title_el = item.select_one(".item_title__AU8UC")
+                name = self.clean_text(title_el.get_text()) if title_el else ""
+                if not name:
                     continue
-                name = self.clean_text(name_el.get_text())
-                price = self.extract_price(price_el.get_text())
-                if not name or price <= 0:
-                    continue
-                link_el = item.select_one("a[href]")
-                href = link_el.get("href", "") if link_el else ""
-                prod_url = f"{self.BASE}{href}" if href.startswith("/") else (href or search_url)
-                img_el = item.select_one("img")
+
+                is_soldout = "item_soldout__nJaFL" in item.get("class", [])
+
+                price = 0
+                price_el = item.select_one(".item_won__tOdO2")
+                if price_el:
+                    price = self.extract_price(price_el.get_text())
+
+                maker_el = item.select_one(".item_info_box__bi2tB .item_name__Bp_mI")
+                maker = self.clean_text(maker_el.get_text()) if maker_el else ""
+
+                img_el = item.select_one(".item_thumb__XKNBq img")
                 img_url = img_el.get("src", "") if img_el else None
+                if img_url and img_url.startswith("/"):
+                    img_url = f"{self.BASE}{img_url}"
+
+                extra = {}
+                if maker:
+                    extra["제조사"] = maker
+
                 products.append(Product(
-                    name=name, price=price, unit_price=None,
-                    url=prod_url, site_name=self.site_name, image_url=img_url, in_stock=True,
+                    name=name,
+                    price=price,
+                    unit_price=None,
+                    url=search_url,
+                    site_name=self.site_name,
+                    image_url=img_url,
+                    in_stock=(not is_soldout) and price > 0,
+                    extra_info=extra,
                 ))
             except Exception:
                 continue
