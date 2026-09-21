@@ -1972,8 +1972,11 @@ class DaewoongTheShopCrawler(BaseCrawler):
           아니어도 로그인이 되는지 아직 미확인. 아래 구현은 외부 IP 조회
           서비스(ipify)로 크롤러 실행 PC의 공인 IP를 가져와 채움.
         - redirectUrl: 캡처된 값 그대로 고정값 사용
-      - 로그인 성공/실패 판별 응답(Response 탭) 구조는 여전히 미확인 —
-        verify_login()은 우선 쿠키 존재 여부로 임시 판별 중
+      - 로그인 응답 확인됨: {"data": "https://mims-account.shop.co.kr/
+        login/direct?ot=<원타임토큰>&sv=TS"}. 세션 쿠키를 바로 안 주고
+        SSO 리다이렉트 URL을 돌려주므로, 이 URL을 한 번 더 GET해야 실제
+        세션이 완성됨. 실패 시 응답 구조는 미확인 — data 필드 부재/빈
+        값을 임시로 실패 판정 기준 삼음(오검증 시도로 캡처 필요).
       - 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이 달라
         `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
       - 요청 헤더에 X-Requested-With: XMLHttpRequest, Referer:
@@ -2029,7 +2032,17 @@ class DaewoongTheShopCrawler(BaseCrawler):
                 "X-Requested-With": "XMLHttpRequest",
             },
         ) as resp:
-            await resp.text()
+            resp_json = await resp.json(content_type=None)
+
+        # 로그인 성공 시 세션 쿠키를 바로 주지 않고 SSO 리다이렉트 URL을
+        # data 필드로 반환함 (mims-account.shop.co.kr/login/direct?ot=...).
+        # 실패 시 응답 구조는 미확인 — data가 없으면 실패로 간주.
+        sso_url = resp_json.get("data") if isinstance(resp_json, dict) else None
+        if not sso_url or not str(sso_url).startswith("http"):
+            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+
+        async with self.session.get(sso_url, headers=self._headers) as sso_resp:
+            await sso_resp.text()
 
         if not await self.verify_login():
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
