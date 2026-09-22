@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v2.7 — Windows GUI
+도매 최저가 비교 프로그램 v2.8 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.7.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.8.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,14 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.8 — 서울약사신협(cupharm.kr) 검색 결과 상품명이 "슝猷⑥걸꼘..." 식으로
+         깨져 나오던 버그 수정. v2.2에서 cp949(EUC-KR)로 확인됐던 응답
+         인코딩이 이후 사이트 측에서 UTF-8로 바뀐 것으로 보이는데, 크롤러는
+         여전히 cp949로 고정 디코딩하고 있어 UTF-8 응답을 cp949로 오판해
+         읽으면서 한글이 깨졌음(디코딩 자체는 실패하지 않아 UnicodeDecodeError
+         없이 조용히 깨진 문자열만 나옴). CupharmCrawler에 UTF-8을 우선
+         시도하고 실패 시에만 cp949로 폴백하는 _decode() 헬퍼를 추가해
+         login()/search() 모두 이를 사용하도록 수정.
   v2.7 — 내장 사이트가 generic → 전용 크롤러로 업그레이드된 뒤에도 예전에
          저장된 config.json에서는 계속 generic으로 남아있던 버그 수정.
          load_config()의 "누락된 내장 사이트만 추가" 로직은 builtin_id가
@@ -82,7 +90,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.7"
+__version__ = "2.8"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1877,8 +1885,11 @@ class CupharmCrawler(BaseCrawler):
       - 비밀번호 암호화 여부(확인됨): Network 탭에서 w14_user_pwd 값이 입력한
         비밀번호 그대로 노출됨 — 평문 전송. crypto-js는 로드만 되고 로그인
         시 실제 사용되지 않음. 현재 코드(평문 전송)가 맞음, 추가 조치 불필요.
-      - ⚠️ 응답 페이지 인코딩은 cp949(EUC-KR 상위호환) — text(encoding="cp949")로
-        읽어야 함. 지정 없이 읽으면 UTF-8로 오판해 UnicodeDecodeError 발생.
+      - ⚠️ (구버전 정보, 더 이상 유효하지 않음) 한때 응답 페이지 인코딩이
+        cp949(EUC-KR 상위호환)였으나, 2026-09 기준 UTF-8로 바뀐 것으로 확인됨
+        — 검색 결과 상품명이 "슝猷⑥걸꼘..." 식으로 깨져 나오던 버그의 원인.
+        cp949로 고정 디코딩하지 않고 _decode()에서 UTF-8을 우선 시도한 뒤
+        실패 시에만 cp949로 폴백하도록 수정(v2.8).
 
     검색 (확인됨): GET /order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&...
       - 결과 행: <tr id="order_goods_N" onclick="fun_old_list('의약품코드', idx, '코드',
@@ -1897,6 +1908,18 @@ class CupharmCrawler(BaseCrawler):
         r"'[^']*','[^']*','[^']*','[^']*'\)"
     )
 
+    @staticmethod
+    def _decode(raw: bytes) -> str:
+        # ⚠️ cupharm.kr 응답 인코딩이 cp949(EUC-KR)에서 UTF-8로 바뀐 것으로
+        # 확인됨 (2026-09) — 검색 결과 상품명이 "슝猷⑥걸꼘..." 식으로 깨져
+        # 나오던 버그의 원인. cp949로 고정 디코딩하지 않고 UTF-8을 먼저
+        # 시도한 뒤(엄격 검증), 실패하면 예전 cp949 응답과의 호환을 위해
+        # cp949로 폴백한다.
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("cp949", errors="ignore")
+
     async def login(self):
         username = self.credentials.get("username", "")
         if not username:
@@ -1907,10 +1930,8 @@ class CupharmCrawler(BaseCrawler):
 
         await self._ensure_session()
 
-        # ⚠️ Classic ASP 페이지가 EUC-KR 계열(cp949)로 응답 — encoding 지정
-        # 없이 text()를 호출하면 UTF-8로 오판해 UnicodeDecodeError가 남
         async with self.session.get(f"{self.BASE}/main/main.asp", headers=self._headers) as resp:
-            await resp.text(encoding="cp949", errors="ignore")
+            self._decode(await resp.read())
 
         login_data = {"w14_user_id": username, "w14_user_pwd": password}
         async with self.session.post(
@@ -1922,7 +1943,7 @@ class CupharmCrawler(BaseCrawler):
                 "Origin":  self.BASE,
             },
         ) as resp:
-            body = await resp.text(encoding="cp949", errors="ignore")
+            body = self._decode(await resp.read())
 
         if "일치하지" in body or "w14_user_cd" not in body:
             raise LoginError(f"'{self.site_name}' 로그인 실패: 아이디/비밀번호 확인 필요")
@@ -1949,7 +1970,7 @@ class CupharmCrawler(BaseCrawler):
         search_url = f"{self.SEARCH_URL}?{'&'.join(f'{k}={quote(str(v))}' for k, v in params.items())}"
 
         async with self.session.get(search_url, headers={**self._headers, "Referer": self.BASE}) as resp:
-            html = await resp.text(encoding="cp949", errors="ignore")
+            html = self._decode(await resp.read())
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
