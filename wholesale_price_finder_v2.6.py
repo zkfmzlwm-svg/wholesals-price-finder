@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v2.5 — Windows GUI
+도매 최저가 비교 프로그램 v2.6 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.5.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.6.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.6 — 스마트팜/서울약사신협 로그인 테스트 시 UnicodeDecodeError로 항상
+         실패하던 버그 수정. 두 사이트 모두 EUC-KR 계열(cp949) 응답인데
+         login() 안에서 encoding 지정 없이 text()를 호출해 UTF-8로 오판하고
+         있었음 (search()는 이미 올바르게 처리 중이었음). 로그인 응답도 동일
+         encoding으로 읽도록 수정.
   v2.5 — 내장 사이트 식별을 위한 builtin_id 필드 도입 (v2.1 작업 당시엔 4개
          사이트가 crawler_type("generic")을 공유해 즉시 문제가 됐고, 이후
          v2.2~v2.4에서 각자 전용 크롤러로 분리되며 crawler_type 충돌 자체는
@@ -67,7 +72,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.5"
+__version__ = "2.6"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1676,6 +1681,8 @@ class SmartPharmCrawler(BaseCrawler):
       - 암호화 없음 — 페이지에 crypto-js/aes.js 등이 없고 onsubmit 핸들러도 없어
         비밀번호를 평문으로 POST함 (HTTPS로만 보호됨)
       - 별도 토큰 없이 세션 쿠키로 인증 유지. 로그아웃은 /Login/Logout.asp
+      - ⚠️ 응답 페이지도 EUC-KR — search()처럼 text(encoding="euc-kr")로 읽어야
+        함. 지정 없이 읽으면 UTF-8로 오판해 UnicodeDecodeError 발생.
 
     검색 (확인됨): GET /Goods/Goods_List.asp
       - TopSearchKey: 검색어. ⚠️ 페이지 characterSet이 EUC-KR이라 반드시
@@ -1732,13 +1739,15 @@ class SmartPharmCrawler(BaseCrawler):
                 "Origin": self.BASE,
             },
         ) as resp:
-            html = await resp.text()
+            # ⚠️ EUC-KR 페이지 — encoding 지정 없이 text()를 호출하면 UTF-8로
+            # 오판해 UnicodeDecodeError가 남 (search()와 동일한 문제)
+            html = await resp.text(encoding="euc-kr", errors="ignore")
 
         if "Logout.asp" in html or "로그아웃" in html:
             self.logged_in = True
         else:
             async with self.session.get(self.BASE, headers=self._headers) as check:
-                check_html = await check.text()
+                check_html = await check.text(encoding="euc-kr", errors="ignore")
             if "Logout.asp" in check_html or "로그아웃" in check_html:
                 self.logged_in = True
             else:
@@ -1841,6 +1850,8 @@ class CupharmCrawler(BaseCrawler):
       - 비밀번호 암호화 여부(확인됨): Network 탭에서 w14_user_pwd 값이 입력한
         비밀번호 그대로 노출됨 — 평문 전송. crypto-js는 로드만 되고 로그인
         시 실제 사용되지 않음. 현재 코드(평문 전송)가 맞음, 추가 조치 불필요.
+      - ⚠️ 응답 페이지 인코딩은 cp949(EUC-KR 상위호환) — text(encoding="cp949")로
+        읽어야 함. 지정 없이 읽으면 UTF-8로 오판해 UnicodeDecodeError 발생.
 
     검색 (확인됨): GET /order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&...
       - 결과 행: <tr id="order_goods_N" onclick="fun_old_list('의약품코드', idx, '코드',
@@ -1869,8 +1880,10 @@ class CupharmCrawler(BaseCrawler):
 
         await self._ensure_session()
 
+        # ⚠️ Classic ASP 페이지가 EUC-KR 계열(cp949)로 응답 — encoding 지정
+        # 없이 text()를 호출하면 UTF-8로 오판해 UnicodeDecodeError가 남
         async with self.session.get(f"{self.BASE}/main/main.asp", headers=self._headers) as resp:
-            await resp.text()
+            await resp.text(encoding="cp949", errors="ignore")
 
         login_data = {"w14_user_id": username, "w14_user_pwd": password}
         async with self.session.post(
@@ -1882,7 +1895,7 @@ class CupharmCrawler(BaseCrawler):
                 "Origin":  self.BASE,
             },
         ) as resp:
-            body = await resp.text()
+            body = await resp.text(encoding="cp949", errors="ignore")
 
         if "일치하지" in body or "w14_user_cd" not in body:
             raise LoginError(f"'{self.site_name}' 로그인 실패: 아이디/비밀번호 확인 필요")
@@ -1909,7 +1922,7 @@ class CupharmCrawler(BaseCrawler):
         search_url = f"{self.SEARCH_URL}?{'&'.join(f'{k}={quote(str(v))}' for k, v in params.items())}"
 
         async with self.session.get(search_url, headers={**self._headers, "Referer": self.BASE}) as resp:
-            html = await resp.text()
+            html = await resp.text(encoding="cp949", errors="ignore")
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
