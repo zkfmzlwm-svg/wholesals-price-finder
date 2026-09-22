@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.5
+## 현재 버전: v2.6
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -19,20 +19,26 @@
 | 팜뉴트리션 | 그누보드 PHP | 폼 POST |
 | 드시모네 | Cafe24 | multipart/form-data |
 | 팜스트리트 | JSP | 폼 POST |
-| 대웅더샵 | Next.js SSR (로그인/검색 URL 확인, 상품목록 셀렉터 미확인) | 폼 POST 추정 (userId/userPwd, JSON 여부 미확인) |
+| 대웅더샵 | Next.js SSR + SSO (로그인/검색 확인됨) | JSON POST → SSO 리다이렉트 |
 | 동아DAPmall | 개별 크롤러 (로그인/검색/파싱 전 항목 검증 완료) | 폼 POST (평문, userId/userPw) |
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
 > 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장 12개
-> 사이트 전부 자기 자신만의 크롤러 클래스를 가집니다.
+> 사이트 전부 자기 자신만의 크롤러 클래스를 가지며, 로그인/검색 스펙도 모두
+> DevTools 실캡쳐로 확인되어 있습니다.
 >
-> 대웅더샵은 로그인(`POST https://www.shop.co.kr/front/front/api/auth/login`,
-> 필드 userId/userPwd)과 검색(`GET https://the.shop.co.kr/contents/search
-> ?searchKey=all&searchVal={query}`) URL·필드명까지는 확인됐지만, 로그인
-> payload가 JSON인지 form-urlencoded인지와 검색 결과 HTML의 정확한 CSS
-> 셀렉터는 아직 미확인이라 "사이트 관리 > 수정"에서 추가 보정이 필요합니다.
+> 대웅더샵은 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이
+> 분리된 SSO 구조입니다: `POST https://www.shop.co.kr/front/api/auth/mimsLogin`
+> (JSON, 필드 identifier/password/clientIP/redirectUrl)으로 로그인하면 즉시
+> 세션 쿠키를 주지 않고 `{"data": "https://mims-account.shop.co.kr/login/direct?ot=..."}`
+> 형태의 SSO 리다이렉트 URL을 반환하며, 이 URL을 한 번 더 GET해야 실제
+> 세션이 완성됩니다. 검색은 `GET https://the.shop.co.kr/contents/search
+> ?searchKey=all&searchVal={query}`, 결과 파싱은 `div.item_result_box__Xr14g`
+> 등 Next.js CSS Modules 해시 클래스를 사용합니다(사이트 재배포 시 바뀔 수
+> 있음에 유의). clientIP 값이 실제 IP가 아니어도 로그인되는지는 미확인이라,
+> 크롤러가 ipify로 실행 PC의 공인 IP를 조회해 채웁니다.
 >
 > 동아DAPmall은 DevTools 실캡쳐로 로그인(`POST /auth/login`, 필드 siteId/
 > userId/userPw, 평문 전송)과 검색(`GET /prod/search-list/?keywordType=ALL
@@ -44,12 +50,14 @@
 >
 > 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
 > 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로
-> 정상 동작합니다.
+> 정상 동작합니다. 응답 페이지가 EUC-KR이라 인코딩 지정 없이 읽으면
+> `UnicodeDecodeError`가 나므로 모든 응답을 `encoding="euc-kr"`로 읽습니다.
 >
 > 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
 > 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
 > 구현되어 있습니다. 비밀번호 클라이언트측 AES 암호화 여부만 미확인 상태로,
-> 우선 평문 전송합니다.
+> 우선 평문 전송합니다. 응답 페이지가 cp949(EUC-KR 상위호환)라 스마트팜과
+> 동일하게 `encoding="cp949"`로 읽습니다.
 
 ## 주요 기능
 - 🔍 여러 사이트 동시 검색 및 가격 비교
@@ -62,16 +70,21 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v2.5.py
+python wholesale_price_finder_v2.6.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v2.5.py
+pyinstaller --onefile --windowed wholesale_price_finder_v2.6.py
 ```
 
 ## 변경 이력
+- v2.6 — 스마트팜/서울약사신협 로그인 테스트가 `UnicodeDecodeError`로 항상
+  실패하던 버그 수정. 두 사이트 모두 EUC-KR 계열(cp949) 응답인데 `login()`
+  안에서 encoding 지정 없이 `text()`를 호출해 UTF-8로 오판하고 있었음
+  (`search()`는 이미 올바르게 처리 중이었음). 로그인 응답도 동일 encoding으로
+  읽도록 수정.
 - v2.5 — 내장 사이트 식별용 `builtin_id` 필드 도입. v2.1 시점엔 4개 사이트가
   `crawler_type("generic")`을 공유해 즉시 문제가 됐고, 이후 v2.2~v2.4에서
   각자 전용 크롤러로 분리되며 crawler_type 충돌 자체는 해소됐지만, 사용자가
