@@ -1,0 +1,31 @@
+BEGIN:VCALENDAR
+PRODID:-//Adobe//Adobe Connect//EN
+VERSION:2.0
+CALSCALE:GREGORIAN
+METHOD:REQUEST
+BEGIN:VEVENT
+DTSTAMP:20260921T012603Z
+DTSTART:20260929T124500Z
+DTEND:20260929T200000Z
+SUMMARY:FDA’s Drug Registration and Listing Workshop: Compliance\, Regula
+ tory and Submission Updates
+UID:282236674
+DESCRIPTION:Hello Jonghyeon\,\n\nWe are pleased to confirm your registrat
+ ion for FDA’s Drug Registration and Listing Workshop: Compliance\, Regul
+ atory and Submission Updates. We look forward to your participation.\n\n
+ Event:Tuesday 29 September 2026\, 08:45 AM - 04:00 PM\n\nTime Zone:(GMT-
+ 04:00) Eastern Time (US and Canada) (Please note that Daylight Saving Ti
+ me (+01:00 hr) is in effect during this time)\n\nTo access the event\, p
+ lease go to the following link at the time of the event and login with y
+ our username and password (if required) with which you have registered f
+ or this event:\n\nhttps://collaboration.fda.gov/sbia_edrls_20260929/even
+ t/login.html?login=jonghyeon.kim%40stpharm.co.kr\n\n\nThank you\,\n\nSBI
+ A Webinar Team\n\n------------------------\n\nIf you've never used Adobe
+  Connect\, get a quick overview: http://www.adobe.com/products/adobeconn
+ ect.html\n\n\n\nAdobe\, the Adobe logo\, Acrobat and Adobe Connect are e
+ ither registered trademarks or trademarks of Adobe Systems Incorporated 
+ in the United States and/or other countries.\n\n\n
+ATTENDEE:
+ORGANIZER:William.Tetlow@fda.hhs.gov
+END:VEVENT
+END:VCALENDAR
