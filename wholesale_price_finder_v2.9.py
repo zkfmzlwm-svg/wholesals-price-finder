@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v2.8 — Windows GUI
+도매 최저가 비교 프로그램 v2.9 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.8.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.9.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,15 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.9 — 스마트팜(smartpharm.co.kr) 로그인이 실제로는 안 되고 있던 버그 수정.
+         DevTools로 재확인한 결과 로그인 폼은 /Login/Login_Proc.asp로 POST되는데
+         SmartPharmCrawler는 폼이 표시되는 페이지인 /Login/Login.asp에 그대로
+         POST하고 있었음. 사이트 홈페이지 네비게이션에 "로그아웃" 문자열이
+         로그인 여부와 무관하게 항상 포함돼 있어(정적 메뉴 항목) login()의
+         성공 판정 로직이 이를 로그인 성공으로 오판, 예외 없이 넘어간 뒤
+         실제로는 비로그인 세션으로 검색해 상품이 0건으로 나오던 것으로 추정.
+         LOGIN_URL을 Login_Proc.asp로 수정하고, 실제 캡처된 폼 필드
+         (reURL/UserID/UserPW)만 전송하도록 로그인 데이터도 정리.
   v2.8 — 서울약사신협(cupharm.kr) 검색 결과 상품명이 "슝猷⑥걸꼘..." 식으로
          깨져 나오던 버그 수정. v2.2에서 cp949(EUC-KR)로 확인됐던 응답
          인코딩이 이후 사이트 측에서 UTF-8로 바뀐 것으로 보이는데, 크롤러는
@@ -90,7 +99,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.8"
+__version__ = "2.9"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1711,11 +1720,18 @@ class SmartPharmCrawler(BaseCrawler):
 
     Classic ASP 기반 도매 사이트.
 
-    로그인 (확인됨): POST /Login/Login.asp
-      - 필드: UserID, UserPW, SaveID(체크박스), AutoLogin(체크박스), reURL(hidden, 빈값)
+    로그인 (재확인됨, DevTools 캡처): POST /Login/Login_Proc.asp
+      - ⚠️ /Login/Login.asp는 로그인 "폼" 페이지일 뿐 처리 엔드포인트가 아님.
+        실제 로그인 폼은 /Login/Login_Proc.asp로 POST됨 — 기존 코드가 Login.asp에
+        POST하고 있어 실제로는 로그인이 되지 않았을 가능성이 높음 (검색 자체는
+        에러 없이 되지만 비로그인 상태라 상품이 0건으로 보이는 문제의 원인으로 추정).
+      - 필드(Payload 캡처로 확인): reURL(hidden, 빈값), UserID, UserPW
+        — SaveID/AutoLogin 체크박스는 미체크 시 폼에서 아예 전송 안 되는 것으로
+        보이나, 기존처럼 같이 보내도 무방(서버가 알 수 없는 필드는 무시하는 것으로 추정)
       - 암호화 없음 — 페이지에 crypto-js/aes.js 등이 없고 onsubmit 핸들러도 없어
         비밀번호를 평문으로 POST함 (HTTPS로만 보호됨)
-      - 별도 토큰 없이 세션 쿠키로 인증 유지. 로그아웃은 /Login/Logout.asp
+      - 별도 토큰 없이 세션 쿠키로 인증 유지 (Set-Cookie: SMARTPHARM.CO.KR_USER-GUGUN 등).
+        로그아웃은 /Login/Logout.asp
       - ⚠️ 응답 페이지도 EUC-KR — search()처럼 text(encoding="euc-kr")로 읽어야
         함. 지정 없이 읽으면 UTF-8로 오판해 UnicodeDecodeError 발생.
 
@@ -1744,7 +1760,8 @@ class SmartPharmCrawler(BaseCrawler):
     """
 
     BASE       = "https://www.smartpharm.co.kr"
-    LOGIN_URL  = "https://www.smartpharm.co.kr/Login/Login.asp"
+    LOGIN_PAGE_URL = "https://www.smartpharm.co.kr/Login/Login.asp"
+    LOGIN_URL  = "https://www.smartpharm.co.kr/Login/Login_Proc.asp"
     SEARCH_URL = "https://www.smartpharm.co.kr/Goods/Goods_List.asp"
 
     async def login(self):
@@ -1758,11 +1775,9 @@ class SmartPharmCrawler(BaseCrawler):
         await self._ensure_session()
 
         login_data = {
+            "reURL": "",
             "UserID": username,
             "UserPW": password,
-            "SaveID": "on",
-            "AutoLogin": "",
-            "reURL": "",
         }
 
         async with self.session.post(
@@ -1770,7 +1785,7 @@ class SmartPharmCrawler(BaseCrawler):
             headers={
                 **self._headers,
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": self.LOGIN_URL,
+                "Referer": self.LOGIN_PAGE_URL,
                 "Origin": self.BASE,
             },
         ) as resp:
