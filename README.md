@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.8
+## 현재 버전: v2.9
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -48,10 +48,17 @@
 > 클릭 시 페이지 이동 없이 `POST /prod/detail/{pid}` JSON 팝업으로 뜨는
 > 구조라 GET 상세페이지가 없어, 상품 링크는 검색결과 페이지 URL로 대체.
 >
-> 스마트팜은 로그인(`POST /Login/Login.asp`), 검색(`GET /Goods/Goods_List.asp`),
+> 스마트팜은 로그인(`POST /Login/Login_Proc.asp`), 검색(`GET /Goods/Goods_List.asp`),
 > 상품 목록 결과 HTML 구조까지 모두 확인되어 전용 크롤러(`SmartPharmCrawler`)로
 > 정상 동작합니다. 응답 페이지가 EUC-KR이라 인코딩 지정 없이 읽으면
 > `UnicodeDecodeError`가 나므로 모든 응답을 `encoding="euc-kr"`로 읽습니다.
+> v2.9에서 DevTools로 재확인해보니 실제 로그인 처리 엔드포인트는
+> `/Login/Login_Proc.asp`였고(`/Login/Login.asp`는 폼이 표시되는 페이지일
+> 뿐), 기존 코드는 `Login.asp`에 그대로 POST하고 있어 실제로는 로그인이
+> 되지 않고 있었습니다. 홈페이지 네비게이션에 "로그아웃" 문자열이 로그인
+> 여부와 무관하게 항상 존재해 로그인 성공 판정 로직이 이를 성공으로
+> 오판, 예외 없이 비로그인 세션으로 검색이 진행되어 결과가 조용히 0건으로
+> 나오던 것으로 추정됩니다.
 >
 > 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
 > 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
@@ -72,16 +79,25 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v2.8.py
+python wholesale_price_finder_v2.9.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v2.8.py
+pyinstaller --onefile --windowed wholesale_price_finder_v2.9.py
 ```
 
 ## 변경 이력
+- v2.9 — 스마트팜(smartpharm.co.kr) 로그인이 실제로는 안 되고 있던 버그
+  수정. DevTools로 재확인한 결과 로그인 폼은 `/Login/Login_Proc.asp`로
+  POST되는데 `SmartPharmCrawler`는 폼이 표시되는 페이지인
+  `/Login/Login.asp`에 그대로 POST하고 있었음. 사이트 홈페이지 네비게이션에
+  "로그아웃" 문자열이 로그인 여부와 무관하게 항상 포함돼 있어(정적 메뉴
+  항목) `login()`의 성공 판정 로직이 이를 로그인 성공으로 오판, 예외 없이
+  넘어간 뒤 실제로는 비로그인 세션으로 검색해 상품이 0건으로 나오던 것으로
+  추정. `LOGIN_URL`을 `Login_Proc.asp`로 수정하고, 실제 캡처된 폼 필드
+  (`reURL`/`UserID`/`UserPW`)만 전송하도록 로그인 데이터도 정리.
 - v2.8 — 서울약사신협(cupharm.kr) 검색 결과 상품명이 "슝猷⑥걸꼘..." 식으로
   깨져 나오던 버그 수정. v2.2에서 cp949(EUC-KR)로 확인됐던 응답 인코딩이
   이후 사이트 측에서 UTF-8로 바뀐 것으로 보이는데, 크롤러는 여전히
