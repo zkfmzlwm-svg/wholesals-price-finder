@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.7
+## 현재 버전: v2.8
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -56,8 +56,10 @@
 > 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
 > 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
 > 구현되어 있습니다. 비밀번호 클라이언트측 AES 암호화 여부만 미확인 상태로,
-> 우선 평문 전송합니다. 응답 페이지가 cp949(EUC-KR 상위호환)라 스마트팜과
-> 동일하게 `encoding="cp949"`로 읽습니다.
+> 우선 평문 전송합니다. 응답 페이지 인코딩이 v2.2 확인 당시엔 cp949(EUC-KR
+> 상위호환)였으나 이후 사이트 측에서 UTF-8로 바뀐 것으로 보여(v2.8에서
+> 검색결과 한글 깨짐으로 발견), 이제는 cp949로 고정하지 않고 UTF-8을 먼저
+> 시도한 뒤 실패할 때만 cp949로 폴백합니다.
 
 ## 주요 기능
 - 🔍 여러 사이트 동시 검색 및 가격 비교
@@ -70,16 +72,24 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v2.7.py
+python wholesale_price_finder_v2.8.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v2.7.py
+pyinstaller --onefile --windowed wholesale_price_finder_v2.8.py
 ```
 
 ## 변경 이력
+- v2.8 — 서울약사신협(cupharm.kr) 검색 결과 상품명이 "슝猷⑥걸꼘..." 식으로
+  깨져 나오던 버그 수정. v2.2에서 cp949(EUC-KR)로 확인됐던 응답 인코딩이
+  이후 사이트 측에서 UTF-8로 바뀐 것으로 보이는데, 크롤러는 여전히
+  cp949로 고정 디코딩하고 있어 UTF-8 응답을 cp949로 오판해 읽으면서
+  한글이 깨졌음(디코딩 자체는 실패하지 않아 `UnicodeDecodeError` 없이
+  조용히 깨진 문자열만 나옴). `CupharmCrawler`에 UTF-8을 우선 시도하고
+  실패 시에만 cp949로 폴백하는 `_decode()` 헬퍼를 추가해 `login()`/
+  `search()` 모두 이를 사용하도록 수정.
 - v2.7 — 내장 사이트가 generic → 전용 크롤러로 업그레이드된 뒤에도 예전에
   저장된 config.json에서는 계속 `generic`으로 남아있던 버그 수정. "누락된
   사이트만 추가"하는 마이그레이션 로직이 `builtin_id`가 이미 있으면 손대지
