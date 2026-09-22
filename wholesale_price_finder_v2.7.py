@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v2.6 — Windows GUI
+도매 최저가 비교 프로그램 v2.7 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.6.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.7.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,16 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v2.7 — 내장 사이트가 generic → 전용 크롤러로 업그레이드된 뒤에도 예전에
+         저장된 config.json에서는 계속 generic으로 남아있던 버그 수정.
+         load_config()의 "누락된 내장 사이트만 추가" 로직은 builtin_id가
+         이미 있으면 손대지 않아서, 스마트팜/서울약사신협/동아DAPmall/
+         대웅더샵을 generic 시절에 이미 등록해 쓰던 사용자는 v2.1~v2.6을
+         아무리 새로 받아도 실제로는 계속 GenericCrawler로 동작하고
+         있었음(로그인 정보를 넣어도 검색이 안 되거나 로그인이 겉보기로만
+         성공하는 현상). 이제 저장된 crawler_type이 최신 preset과 다르면
+         crawler_type/login_config/selectors/base_url만 최신값으로 갱신하고
+         사용자의 크리덴셜·활성화 상태·이름은 그대로 유지하도록 수정.
   v2.6 — 스마트팜/서울약사신협 로그인 테스트 시 UnicodeDecodeError로 항상
          실패하던 버그 수정. 두 사이트 모두 EUC-KR 계열(cp949) 응답인데
          login() 안에서 encoding 지정 없이 text()를 호출해 UTF-8로 오판하고
@@ -72,7 +82,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.6"
+__version__ = "2.7"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -269,6 +279,23 @@ def load_config() -> dict:
                 if inferred:
                     site["builtin_id"] = inferred
                     migrated = True
+
+        # 내장 사이트인데 crawler_type이 최신 preset과 다르면(예: generic 시절에
+        # 저장된 뒤 나중에 전용 크롤러 클래스가 생긴 경우) 크롤러 구현 관련
+        # 필드만 최신값으로 갱신한다. 이걸 안 하면 "누락된 사이트만 추가"하는
+        # 아래 로직 때문에 builtin_id가 이미 있다는 이유로 영원히 generic에
+        # 머무르게 됨 — 실제로 스마트팜/서울약사신협/동아DAPmall/대웅더샵이
+        # 전용 크롤러로 업그레이드된 뒤에도 구버전 config에서 계속 generic으로
+        # 동작하던 버그의 원인이었음. 크리덴셜/활성화 상태/이름은 그대로 유지.
+        builtin_by_id = {b["builtin_id"]: b for b in BUILTIN_SITES}
+        for site in config.get("sites", []):
+            preset = builtin_by_id.get(site.get("builtin_id"))
+            if preset and site.get("crawler_type") != preset["crawler_type"]:
+                site["crawler_type"] = preset["crawler_type"]
+                site["login_config"] = copy.deepcopy(preset["login_config"])
+                site["selectors"] = copy.deepcopy(preset["selectors"])
+                site["base_url"] = preset["base_url"]
+                migrated = True
 
         # 내장 사이트가 빠져 있으면 자동 추가
         # (builtin_id 기준 매칭 — name은 사용자가 수정할 수 있고, crawler_type은
