@@ -101,7 +101,7 @@ from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 from yarl import URL as YarlURL
 
 import tkinter as tk
@@ -2043,6 +2043,17 @@ class DaewoongTheShopCrawler(BaseCrawler):
         `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
       - 요청 헤더에 X-Requested-With: XMLHttpRequest, Referer:
         https://www.shop.co.kr/front/intro/login 포함 확인.
+      - 실사용자 브라우저 확인(2026-09): 실제 로그인 흐름은
+        www.shop.co.kr/front/intro/login(로그인 폼) → mims-account.shop.co.kr/
+        로 시작하는 긴 중간 페이지(SSO 처리 화면, 정확한 응답 구조/쿠키
+        설정 방식은 DevTools 재캡처 필요) → the.shop.co.kr(최종 완료) 3단계.
+        mims-account 쪽이 HTTP 302로 즉시 끝나지 않고 페이지를 렌더링한 뒤
+        the.shop.co.kr로 넘어가는 것으로 보여, meta refresh/JS 리다이렉트일
+        가능성을 염두에 두고 아래 login()에서 그런 경우까지 따라가도록 함.
+        (aiohttp는 HTTP 3xx는 자동으로 따라가지만 JS 리다이렉트는 실행하지
+        못하므로, 실제로 document.cookie 등 JS로만 쿠키를 심는 방식이라면
+        이 구현으로도 세션이 안 만들어질 수 있음 — DevTools Network 탭의
+        mims-account 응답 원문 확인이 여전히 필요함.)
 
     검색 (2026-09 DevTools 캡처로 확인): GET
       https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
@@ -2074,6 +2085,27 @@ class DaewoongTheShopCrawler(BaseCrawler):
     SEARCH_URL   = "https://the.shop.co.kr/contents/search"
     REDIRECT_URL = "https://www.shop.co.kr/front/api/theshop/user/mapping/get_secure_check"
     IP_ECHO_URL  = "https://api.ipify.org?format=json"
+
+    _META_REFRESH_RE = re.compile(
+        r'<meta[^>]+http-equiv=["\']?refresh["\']?[^>]+content=["\'][^"\';]*;\s*url=([^"\'\s]+)',
+        re.IGNORECASE,
+    )
+    _JS_REDIRECT_RE = re.compile(
+        r'location(?:\.href)?\s*(?:=|\.replace\()\s*["\']([^"\']+)["\']'
+    )
+
+    @classmethod
+    def _extract_client_redirect(cls, html: str, page_url: str) -> Optional[str]:
+        """mims-account.shop.co.kr 중간 페이지가 HTTP 302가 아니라 meta
+        refresh/JS로 the.shop.co.kr로 넘기는 경우를 대비해 다음 이동 URL을
+        페이지 본문에서 찾는다 (실사용자 브라우저 확인: 이 단계가 "긴 페이지"
+        로 보이는 원인일 가능성)."""
+        if not html:
+            return None
+        m = cls._META_REFRESH_RE.search(html) or cls._JS_REDIRECT_RE.search(html)
+        if not m:
+            return None
+        return urljoin(page_url, m.group(1).strip())
 
     async def _get_client_ip(self) -> str:
         try:
@@ -2122,8 +2154,28 @@ class DaewoongTheShopCrawler(BaseCrawler):
         if not sso_url or not str(sso_url).startswith("http"):
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
 
-        async with self.session.get(sso_url, headers=self._headers) as sso_resp:
-            await sso_resp.text()
+        # 실사용자 확인 흐름: mims-account.shop.co.kr의 긴 중간 페이지를 거쳐
+        # the.shop.co.kr로 최종 이동함. aiohttp가 자동으로 못 따라가는 meta
+        # refresh/JS 리다이렉트일 수 있어 최대 3홉까지 직접 따라간다.
+        current_url = sso_url
+        landed_url = ""
+        for _ in range(3):
+            async with self.session.get(current_url, headers=self._headers) as hop_resp:
+                html = await hop_resp.text()
+                landed_url = str(hop_resp.url)
+            if landed_url.startswith(self.BASE):
+                break
+            redirect_to = self._extract_client_redirect(html, landed_url)
+            if not redirect_to:
+                break
+            current_url = redirect_to
+
+        # 위 홉만으로 the.shop.co.kr에 도달하지 못했다면(예: mims-account가
+        # JS로만 쿠키를 심고 이동 링크는 못 찾은 경우) 실제 사용자가 마지막에
+        # 방문하는 the.shop.co.kr 홈을 한 번 더 방문해 세션 확정을 시도한다.
+        if not landed_url.startswith(self.BASE):
+            async with self.session.get(self.BASE, headers=self._headers) as home_resp:
+                await home_resp.text()
 
         if not await self.verify_login():
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
