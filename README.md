@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.6
+## 현재 버전: v2.7
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -70,16 +70,24 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v2.6.py
+python wholesale_price_finder_v2.7.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v2.6.py
+pyinstaller --onefile --windowed wholesale_price_finder_v2.7.py
 ```
 
 ## 변경 이력
+- v2.7 — 내장 사이트가 generic → 전용 크롤러로 업그레이드된 뒤에도 예전에
+  저장된 config.json에서는 계속 `generic`으로 남아있던 버그 수정. "누락된
+  사이트만 추가"하는 마이그레이션 로직이 `builtin_id`가 이미 있으면 손대지
+  않아서, generic 시절부터 로그인 정보를 등록해 쓰던 사용자는 코드를 아무리
+  새로 받아도 실제로는 계속 GenericCrawler로 동작하고 있었음. 저장된
+  `crawler_type`이 최신 preset과 다르면 `crawler_type`/`login_config`/
+  `selectors`/`base_url`만 최신값으로 갱신하고 크리덴셜·활성화 상태·이름은
+  그대로 유지하도록 수정.
 - v2.6 — 스마트팜/서울약사신협 로그인 테스트가 `UnicodeDecodeError`로 항상
   실패하던 버그 수정. 두 사이트 모두 EUC-KR 계열(cp949) 응답인데 `login()`
   안에서 encoding 지정 없이 `text()`를 호출해 UTF-8로 오판하고 있었음
