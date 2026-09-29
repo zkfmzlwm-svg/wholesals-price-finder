@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.0 — Windows GUI
+도매 최저가 비교 프로그램 v3.1 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.1.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,16 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.1 — 새로팜(saeropharm.com) 로그인이 실제로는 안 되고 있던 버그 수정.
+         DevTools로 재확인한 결과 1단계 로그인 응답(flag=="4")은 아이디/
+         비밀번호 확인만 통과했다는 뜻일 뿐이고, 응답에 같이 오는
+         `returnUrl`(OTP 토큰 포함 `loginCheckUsingEncryptOTP.do?...`)을
+         한 번 더 GET해야 실제 인증 세션이 완성되는 2단계 SSO 구조였음
+         (대웅더샵과 동일 패턴). 기존 코드는 flag=="4"만 보고 바로 로그인
+         성공 처리해 실제 세션은 완성되지 않은 채 검색이 진행되었고, 사이트가
+         비로그인 요청에 "로그인이 필요합니다" 알럿만 띄우고 상품 목록
+         자체를 내려주지 않아 조용히 0건이 되던 것으로 확인됨(ID/PW를
+         정확히 입력해도 재현됨). `returnUrl` GET을 로그인 절차에 추가.
   v3.0 — 유팜몰(upharmmall.co.kr) 로그인이 실제로는 안 되고 있던 버그 수정.
          DevTools로 재확인한 결과 응답 HTML에 "mypage"/"logout" 문자열이
          비로그인 상태에도 항상 포함되어 있음(정적 "/Mypage/..." 링크들,
@@ -110,7 +120,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.0"
+__version__ = "3.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1123,10 +1133,20 @@ class SaeroPharmCrawler(BaseCrawler):
     새로팜 (saeropharm.com) 전용 크롤러.
 
     검색 흐름 (확인됨):
-      1. 로그인: POST /front/ajax/login/loginCheckAjaxEncrypt.do
+      1. 로그인 1단계: POST /front/ajax/login/loginCheckAjaxEncrypt.do
          - JSON body: {userId, userPw(base64), userAgent, cookieUserIdChk}
          - 비밀번호: b64EncodeUnicode() = Base64 인코딩
-      2. 검색: GET /w/product/searchProductList.do?mainSchValue={query}
+         - 응답 JSON: {"result":"success","flag":"4","returnUrl":"https://.../
+           w/login/loginCheckUsingEncryptOTP.do?userId=...&userOTP=...
+           &cookieUserIdChk=...&userAgent="}
+         - ⚠️ flag=="4"는 아이디/비밀번호 확인만 통과했다는 뜻이지 로그인
+           완료가 아님 — 이 응답의 Set-Cookie는 `__smVisitorID`(방문자 추적용)
+           /`cookieUserId`(아이디 기억용)뿐이고 실제 인증 세션 쿠키가 아님.
+      2. 로그인 2단계(필수): 1단계 응답의 `returnUrl`을 그대로 한 번 더 GET해야
+         실제 인증 세션이 완성됨(OTP 토큰 기반 리다이렉트 완료 — 대웅더샵과
+         동일한 2단계 SSO 패턴). 이 단계를 생략하면 이후 요청이 전부 비로그인
+         상태로 처리되어 검색 결과가 "로그인이 필요합니다" 알럿과 함께 0건이 됨.
+      3. 검색: GET /w/product/searchProductList.do?mainSchValue={query}
          - HTML 파싱: div.prd-item[data-no] → 상품 목록
          - p.name: 상품명
          - p.text: 규격 (예: "(1매)", "5매(1EA)")
@@ -1171,14 +1191,23 @@ class SaeroPharmCrawler(BaseCrawler):
                 raise LoginError(f"'{self.site_name}' 로그인 실패 (HTTP {resp.status})")
             data = await resp.json(content_type=None)
             flag = str(data.get("flag", ""))
-            if flag == "4":
-                self.logged_in = True
-            elif flag == "0":
+            if flag == "0":
                 raise LoginError(f"'{self.site_name}' 아이디 또는 비밀번호가 잘못되었습니다.")
             elif flag == "2":
                 raise LoginError(f"'{self.site_name}' 회원가입 승인 중입니다.")
-            else:
+            elif flag != "4":
                 raise LoginError(f"'{self.site_name}' 로그인 실패 (flag={flag})")
+
+        # flag=="4"는 아이디/비밀번호 확인만 통과했다는 뜻 — 응답의 returnUrl을
+        # 한 번 더 GET해야 실제 인증 세션(OTP 리다이렉트)이 완성됨. 이 단계를
+        # 건너뛰면 이후 요청이 비로그인 상태로 처리되어 검색이 0건이 됨.
+        return_url = data.get("returnUrl", "")
+        if not return_url:
+            raise LoginError(f"'{self.site_name}' 로그인 실패 — returnUrl 없음")
+        async with self.session.get(return_url, headers=self._headers) as resp2:
+            await resp2.text()
+
+        self.logged_in = True
 
     async def verify_login(self) -> bool:
         return self.logged_in
