@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.0
+## 현재 버전: v3.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -15,7 +15,7 @@
 | 유팜몰 | ASP.NET WebForms (로그인/검색/목록 파싱 확인됨) | ViewState POST |
 | 한미몰 | Spring + DWR | DWR 특수 포맷 |
 | 플랫팜 | Next.js + NextAuth | JWT |
-| 새로팜 | Cookie 기반 | Base64 비밀번호 |
+| 새로팜 | Cookie 기반 (로그인/검색/목록 파싱 확인됨) | Base64 비밀번호 + OTP 2단계 |
 | 팜뉴트리션 | 그누보드 PHP | 폼 POST |
 | 드시모네 | Cafe24 | multipart/form-data |
 | 팜스트리트 | JSP | 폼 POST |
@@ -72,6 +72,20 @@
 > 0건으로 나오던 것으로 추정됩니다. 서버가 실제 로그인 여부에 따라 다르게
 > 렌더링하는 `var isLogin = "true"/"false";` 값으로 판정하도록 수정했습니다.
 >
+> 새로팜은 로그인(`POST /front/ajax/login/loginCheckAjaxEncrypt.do`, JSON
+> {userId, userPw(base64), userAgent, cookieUserIdChk})과 검색(`GET
+> /w/product/searchProductList.do?mainSchValue={query}`), 상품 목록 HTML
+> 구조(`div.prd-item[data-no]` 안의 `p.name`/`p.text`/`p.amount`)까지
+> 확인되어 전용 크롤러(`SaeroPharmCrawler`)로 정상 동작합니다. v3.1에서
+> DevTools로 재확인해보니 1단계 로그인 응답의 `flag=="4"`는 아이디/비밀번호
+> 확인만 통과했다는 뜻일 뿐, 응답에 같이 오는 `returnUrl`(OTP 토큰 포함
+> `loginCheckUsingEncryptOTP.do?...`)을 한 번 더 GET해야 실제 인증 세션이
+> 완성되는 2단계 SSO 구조였습니다(대웅더샵과 동일 패턴). 기존 코드는
+> flag=="4"만 보고 바로 로그인 성공 처리해 실제 세션은 완성되지 않았고,
+> 사이트가 비로그인 요청에는 "로그인이 필요합니다" 알럿만 띄우고 상품
+> 목록을 아예 내려주지 않아 ID/PW를 정확히 입력해도 검색이 조용히 0건이
+> 되던 것으로 확인됐습니다. `returnUrl` GET을 로그인 절차에 추가했습니다.
+>
 > 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
 > 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
 > 구현되어 있습니다. 비밀번호 클라이언트측 AES 암호화 여부만 미확인 상태로,
@@ -91,16 +105,25 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.0.py
+python wholesale_price_finder_v3.1.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.1.py
 ```
 
 ## 변경 이력
+- v3.1 — 새로팜(saeropharm.com) 로그인이 실제로는 안 되고 있던 버그 수정.
+  DevTools로 재확인한 결과 1단계 로그인 응답(`flag=="4"`)은 아이디/비밀번호
+  확인만 통과했다는 뜻일 뿐이고, 응답에 같이 오는 `returnUrl`(OTP 토큰 포함
+  `loginCheckUsingEncryptOTP.do?...`)을 한 번 더 GET해야 실제 인증 세션이
+  완성되는 2단계 SSO 구조였음(대웅더샵과 동일 패턴). 기존 코드는
+  `flag=="4"`만 보고 바로 로그인 성공 처리해 실제 세션은 완성되지 않은 채
+  검색이 진행되었고, 사이트가 비로그인 요청에 "로그인이 필요합니다" 알럿만
+  띄우고 상품 목록 자체를 내려주지 않아 ID/PW를 정확히 입력해도 검색이
+  조용히 0건이 되던 것으로 확인됨. `returnUrl` GET을 로그인 절차에 추가.
 - v3.0 — 유팜몰(upharmmall.co.kr) 로그인이 실제로는 안 되고 있던 버그 수정.
   DevTools로 재확인한 결과 응답 HTML에 "mypage"/"logout" 문자열이 비로그인
   상태에도 항상 포함돼 있어(정적 "/Mypage/..." 링크들, `Logout()` 함수의
