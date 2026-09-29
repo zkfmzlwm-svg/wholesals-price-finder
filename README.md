@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v2.9
+## 현재 버전: v3.0
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -12,7 +12,7 @@
 | 사이트 | 기술 스택 | 로그인 방식 |
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
-| 유팜몰 | ASP.NET WebForms | ViewState POST |
+| 유팜몰 | ASP.NET WebForms (로그인/검색/목록 파싱 확인됨) | ViewState POST |
 | 한미몰 | Spring + DWR | DWR 특수 포맷 |
 | 플랫팜 | Next.js + NextAuth | JWT |
 | 새로팜 | Cookie 기반 | Base64 비밀번호 |
@@ -60,6 +60,18 @@
 > 오판, 예외 없이 비로그인 세션으로 검색이 진행되어 결과가 조용히 0건으로
 > 나오던 것으로 추정됩니다.
 >
+> 유팜몰은 메인 페이지(`default.aspx`)에서 `__VIEWSTATE`를 추출해 같은 URL로
+> 포스트백하는 클래식 ASP.NET WebForms 로그인이며, 검색(`GET
+> /Search/Search.aspx?keyword={query}`)과 상품 목록 HTML 구조(`#tbodyProdList
+> tr[data-idx]` 안의 `span[id*="lblProductName"/"lblPrice"/"lblStandard"]`)까지
+> 확인되어 전용 크롤러(`UPharmMallCrawler`)로 정상 동작합니다. v3.0에서
+> DevTools로 재확인해보니 로그인 응답 HTML에 "mypage"/"logout" 문자열이
+> 비로그인 상태에도 항상 포함돼 있어(정적 "/Mypage/..." 링크들, `Logout()`
+> 함수의 "/Member/LogOut.aspx" 참조) 기존 판정 로직이 로그인 실패도 항상
+> 성공으로 오판, 실제로는 비로그인 세션으로 검색이 진행되어 결과가 조용히
+> 0건으로 나오던 것으로 추정됩니다. 서버가 실제 로그인 여부에 따라 다르게
+> 렌더링하는 `var isLogin = "true"/"false";` 값으로 판정하도록 수정했습니다.
+>
 > 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
 > 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
 > 구현되어 있습니다. 비밀번호 클라이언트측 AES 암호화 여부만 미확인 상태로,
@@ -79,16 +91,26 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v2.9.py
+python wholesale_price_finder_v3.0.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v2.9.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.0.py
 ```
 
 ## 변경 이력
+- v3.0 — 유팜몰(upharmmall.co.kr) 로그인이 실제로는 안 되고 있던 버그 수정.
+  DevTools로 재확인한 결과 응답 HTML에 "mypage"/"logout" 문자열이 비로그인
+  상태에도 항상 포함돼 있어(정적 "/Mypage/..." 링크들, `Logout()` 함수의
+  "/Member/LogOut.aspx" 참조) `login()`의 성공 판정이 항상 True가 되어
+  로그인 실패도 성공으로 오판, 실제로는 비로그인 세션으로 검색해 조용히
+  0건이 되던 것으로 추정. 서버가 실제 로그인 여부에 따라 다르게 렌더링하는
+  `var isLogin = "true"/"false";` 값으로 판정하도록 수정. 상품 목록 파싱도
+  `tr[data-idx]`가 우측 공급사별 가격 패널과 겹치는 문제를 `#tbodyProdList
+  tr[data-idx]`로 좁혀 명확화. 로그인 폼 필드도 실제 캡처와 대조해 미전송
+  필드(`ex_chk`) 제거.
 - v2.9 — 스마트팜(smartpharm.co.kr) 로그인이 실제로는 안 되고 있던 버그
   수정. DevTools로 재확인한 결과 로그인 폼은 `/Login/Login_Proc.asp`로
   POST되는데 `SmartPharmCrawler`는 폼이 표시되는 페이지인
