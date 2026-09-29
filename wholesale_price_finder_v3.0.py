@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v2.9 — Windows GUI
+도매 최저가 비교 프로그램 v3.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v2.9.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,17 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.0 — 유팜몰(upharmmall.co.kr) 로그인이 실제로는 안 되고 있던 버그 수정.
+         DevTools로 재확인한 결과 응답 HTML에 "mypage"/"logout" 문자열이
+         비로그인 상태에도 항상 포함되어 있음(정적 "/Mypage/..." 링크들,
+         Logout() 함수의 "/Member/LogOut.aspx" 참조) — login()의 성공 판정이
+         이 문자열 존재 여부였는데 항상 True가 되어 로그인 실패도 성공으로
+         오판, 실제로는 비로그인 세션으로 검색해 조용히 0건이 되던 것으로
+         추정. 서버가 실제 로그인 여부에 따라 다르게 렌더링하는
+         `var isLogin = "true"/"false";` 값으로 판정하도록 수정. 상품 목록
+         파싱도 `tr[data-idx]`가 우측 공급사별 가격 패널과 겹치는 문제를
+         `#tbodyProdList tr[data-idx]`로 좁혀 명확화. 로그인 폼 필드도 실제
+         캡처와 대조해 미전송 필드(ex_chk) 제거.
   v2.9 — 스마트팜(smartpharm.co.kr) 로그인이 실제로는 안 되고 있던 버그 수정.
          DevTools로 재확인한 결과 로그인 폼은 /Login/Login_Proc.asp로 POST되는데
          SmartPharmCrawler는 폼이 표시되는 페이지인 /Login/Login.asp에 그대로
@@ -99,7 +110,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "2.9"
+__version__ = "3.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -624,13 +635,29 @@ class UPharmMallCrawler(BaseCrawler):
     """
     유팜몰 (upharmmall.co.kr) 전용 크롤러.
 
-    검색 흐름 (확인됨):
-      1. 로그인: 메인 페이지에서 __VIEWSTATE 추출 후 폼 POST
-      2. 검색:   /Search/Search.aspx?keyword={query} → HTML 파싱
-         - tr[data-idx]: 상품 행 (상품코드 포함)
-         - span[id*="lblProductName"]: 상품명
-         - span[id*="lblPrice"]: 가격 (예: "3,500원")
-         - span[id*="lblStandard"]: 규격/제조사 (예: "50매입 / (주)대성메디케어")
+    로그인 (재확인됨, DevTools 캡처): 메인 페이지(default.aspx)에서 __VIEWSTATE
+    추출 후 같은 URL로 클래식 ASP.NET WebForms 풀 포스트백.
+      - 필드: winClosed/errorMessage/informationMessage/confirmMessage/
+        __EVENTTARGET/__EVENTARGUMENT/__VIEWSTATE/__VIEWSTATEGENERATOR/
+        ctl00$HeaderControl$txtTopUserID/txtTopPwd/hidPwd/hidSaveidCheck(체크
+        안하면 "0")/ibtnTopLogin/hidUpPw/hidPwRetn/data/gubun/topMaker/
+        topKeyword/hiTopWidth/hiTopHeight. ex_chk(아이디 저장 체크박스)는
+        미체크 시 폼에서 아예 전송 안 됨.
+      - ⚠️ 로그인 성공 판정 주의: 응답 HTML에 "mypage"/"logout" 문자열은
+        비로그인 상태에도 항상 포함되어 있음(정적 "/Mypage/..." 링크들,
+        Logout() 함수의 "/Member/LogOut.aspx" 참조) — 이 기준으로 판정하면
+        로그인 실패해도 항상 성공으로 오판해 실제로는 비로그인 세션으로
+        검색이 진행되고 결과가 조용히 0건이 됨. 서버가 실제 로그인 여부에
+        따라 다르게 렌더링하는 `var isLogin = "true"/"false";` 값으로
+        판정해야 함.
+
+    검색 흐름 (확인됨): /Search/Search.aspx?keyword={query}(UTF-8 인코딩) → HTML 파싱
+      - #tbodyProdList tr[data-idx]: 상품 행(상품코드 포함). ⚠️ 우측 공급사별
+        가격 패널(#tbodyVendorList)도 tr에 data-idx를 쓰므로 컨테이너로
+        범위를 좁혀야 함(그러지 않아도 span 미존재로 걸러지긴 하지만 더 명확).
+      - span[id*="lblProductName"]: 상품명
+      - span[id*="lblPrice"]: 가격 (예: "2,600원")
+      - span[id*="lblStandard"]: 규격/제조사 (예: "200매*1EA / 한진양행")
     """
 
     LOGIN_URL  = "https://www.upharmmall.co.kr/"
@@ -674,9 +701,8 @@ class UPharmMallCrawler(BaseCrawler):
             "ctl00$HeaderControl$txtTopUserID": username,
             "ctl00$HeaderControl$txtTopPwd": password,
             "ctl00$HeaderControl$hidPwd": "",
-            "ctl00$HeaderControl$hidSaveidCheck": "1",
+            "ctl00$HeaderControl$hidSaveidCheck": "0",
             "ctl00$HeaderControl$ibtnTopLogin": "로그인",
-            "ctl00$HeaderControl$ex_chk": "on",
             "ctl00$HeaderControl$hidUpPw": "N",
             "ctl00$HeaderControl$hidPwRetn": "",
             "data": "",
@@ -697,7 +723,12 @@ class UPharmMallCrawler(BaseCrawler):
         ) as resp:
             result_html = await resp.text()
 
-        if "mypage" in result_html.lower() or "logout" in result_html.lower() or "로그아웃" in result_html:
+        # ⚠️ "mypage"/"logout" 문자열은 비로그인 상태 페이지에도 항상 포함되어
+        # 있음(정적 링크 "/Mypage/..." 들, Logout() 함수의 "/Member/LogOut.aspx"
+        # 참조) — 이 기준으로는 로그인 실패해도 항상 성공으로 오판하게 됨.
+        # 서버가 실제 로그인 상태에 따라 렌더링하는 `var isLogin = "true"/"false";`
+        # 값으로 판정해야 함.
+        if 'isLogin = "true"' in result_html:
             self.logged_in = True
         else:
             raise LoginError(f"'{self.site_name}' 로그인 실패 — ID/비밀번호를 확인하세요.")
@@ -718,8 +749,10 @@ class UPharmMallCrawler(BaseCrawler):
         soup = BeautifulSoup(html, "html.parser")
         products = []
 
-        # 상품 행: <tr data-idx="3H0202730-200"> (확인됨)
-        rows = soup.select('tr[data-idx]')
+        # 상품 행: #tbodyProdList 안의 <tr data-idx="3G8000005-060"> (확인됨)
+        # ⚠️ 우측 공급사별 가격 패널(#tbodyVendorList)도 tr에 data-idx를 써서
+        # 컨테이너로 범위를 좁혀야 함 — 안 좁혀도 span 미존재로 걸러지긴 함
+        rows = soup.select('#tbodyProdList tr[data-idx]')
 
         for row in rows:
             try:
