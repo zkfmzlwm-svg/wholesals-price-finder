@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.1
+## 현재 버전: v3.2
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -16,7 +16,7 @@
 | 한미몰 | Spring + DWR | DWR 특수 포맷 |
 | 플랫팜 | Next.js + NextAuth | JWT |
 | 새로팜 | Cookie 기반 (로그인/검색/목록 파싱 확인됨) | Base64 비밀번호 + OTP 2단계 |
-| 팜뉴트리션 | 그누보드 PHP | 폼 POST |
+| 팜뉴트리션 | 그누보드 PHP (Tailwind 리뉴얼, 검색 URL 확인됨) | 폼 POST |
 | 드시모네 | Cafe24 | multipart/form-data |
 | 팜스트리트 | JSP | 폼 POST |
 | 대웅더샵 | Next.js SSR + SSO (로그인/검색 확인됨) | JSON POST → SSO 리다이렉트 |
@@ -86,6 +86,15 @@
 > 목록을 아예 내려주지 않아 ID/PW를 정확히 입력해도 검색이 조용히 0건이
 > 되던 것으로 확인됐습니다. `returnUrl` GET을 로그인 절차에 추가했습니다.
 >
+> 팜뉴트리션은 그누보드(PHP) 기반 쇼핑몰이 Tailwind 기반 테마로 전면
+> 개편되면서 검색 목록 URL이 `/shop/list_all.php?stx=`에서
+> `/shop/search.php?q=`로 바뀌어 있었습니다. `PharmNutritionCrawler`는
+> 여전히 옛 URL/파라미터로 요청하고 있어 상품 링크(`it_id`)를 하나도 못
+> 뽑고 조용히 0건이 되던 것으로 v3.2에서 DevTools로 재확인해 수정했습니다.
+> 상품 상세 페이지(`item.php?it_id=`)의 `sit_title`/`it_price`/
+> `it_send_cost_display` 구조는 리뉴얼 후에도 동일하게 유지되고 있어 해당
+> 파싱 로직은 그대로 재사용합니다.
+>
 > 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
 > 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
 > 구현되어 있습니다. 비밀번호 클라이언트측 AES 암호화 여부만 미확인 상태로,
@@ -105,16 +114,25 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.1.py
+python wholesale_price_finder_v3.2.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.1.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.2.py
 ```
 
 ## 변경 이력
+- v3.2 — 팜뉴트리션(pharmnutrition.co.kr) 검색 결과 0건 버그 수정. 사이트가
+  Tailwind 기반 테마로 전면 개편되면서 검색 목록 URL이
+  `/shop/list_all.php?stx=`에서 `/shop/search.php?q=`로 바뀌어 있었는데
+  `PharmNutritionCrawler`는 여전히 옛 URL/파라미터로 요청하고 있어 상품
+  링크(`it_id`)를 하나도 못 뽑고 조용히 0건이 되던 것으로 확인됨(DevTools로
+  재확인). 상품 상세 페이지(`item.php?it_id=`)의 `sit_title`/`it_price`/
+  `it_send_cost_display` 구조는 리뉴얼 후에도 그대로 유지되고 있어 해당
+  파싱 로직은 변경 없음. `SEARCH_URL`과 쿼리 파라미터명을 새 엔드포인트로
+  수정.
 - v3.1 — 새로팜(saeropharm.com) 로그인이 실제로는 안 되고 있던 버그 수정.
   DevTools로 재확인한 결과 1단계 로그인 응답(`flag=="4"`)은 아이디/비밀번호
   확인만 통과했다는 뜻일 뿐이고, 응답에 같이 오는 `returnUrl`(OTP 토큰 포함
