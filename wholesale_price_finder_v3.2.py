@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.1 — Windows GUI
+도매 최저가 비교 프로그램 v3.2 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.1.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.2.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,15 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.2 — 팜뉴트리션(pharmnutrition.co.kr) 검색 결과 0건 버그 수정. 사이트가
+         Tailwind 기반 테마로 전면 개편되면서 검색 목록 URL이
+         `/shop/list_all.php?stx=`에서 `/shop/search.php?q=`로 바뀌어 있었는데
+         PharmNutritionCrawler는 여전히 옛 URL/파라미터로 요청하고 있어
+         it_id를 하나도 못 뽑고 조용히 0건이 되던 것으로 확인됨(DevTools로
+         재확인). 상품 상세 페이지(item.php?it_id=)의 sit_title/it_price/
+         it_send_cost_display 구조는 리뉴얼 후에도 그대로 유지되고 있어
+         해당 파싱 로직은 변경 없음. SEARCH_URL과 쿼리 파라미터명을 새
+         엔드포인트로 수정.
   v3.1 — 새로팜(saeropharm.com) 로그인이 실제로는 안 되고 있던 버그 수정.
          DevTools로 재확인한 결과 1단계 로그인 응답(flag=="4")은 아이디/
          비밀번호 확인만 통과했다는 뜻일 뿐이고, 응답에 같이 오는
@@ -120,7 +129,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.1"
+__version__ = "3.2"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1277,14 +1286,20 @@ class PharmNutritionCrawler(BaseCrawler):
 
     그누보드(PHP) 기반 쇼핑몰.
 
-    검색 흐름 (확인됨):
+    검색 흐름:
       1. 로그인: POST /bbs/login_check.php
          - 필드: mb_id, mb_password, url, auto_login=on
          - 성공 시 Location 헤더로 메인 페이지 리다이렉트
-      2. 검색 목록: GET /shop/list_all.php?stx={query}
+      2. 검색 목록 (v3.2에서 DevTools 재확인 후 수정): GET /shop/search.php?q={query}
+         - ⚠️ 사이트가 Tailwind 기반 테마로 전면 개편되면서 검색 목록 URL이
+           `/shop/list_all.php?stx=`에서 `/shop/search.php?q=`로 바뀌어 있었음
+           (기존 URL은 더 이상 유효한 검색 결과를 주지 않아 it_id를 하나도
+           못 뽑고 조용히 0건이 되던 원인). 상품 상세 페이지 구조는 리뉴얼
+           이후에도 동일 id들을 유지하고 있어 그대로 재사용.
          - HTML에 가격 없음 → <a href="/shop/item.php?it_id=XXXX"> 에서 it_id 추출
-      3. 상품 상세: GET /shop/item.php?it_id={it_id} (비동기 병렬)
-         - <input id="it_price" value="12500"> → 가격
+      3. 상품 상세: GET /shop/item.php?it_id={it_id} (비동기 병렬, id 구조는
+         리뉴얼 후에도 유지됨 — 확인됨)
+         - <input id="it_price" value="12500"> → 가격 (현재는 hidden input)
          - <h2 id="sit_title"> → 상품명
          - <p>포장단위 : ...</p> → 규격
          - data-base-cost 속성 → 배송비
@@ -1292,7 +1307,7 @@ class PharmNutritionCrawler(BaseCrawler):
 
     BASE       = "https://www.pharmnutrition.co.kr"
     LOGIN_URL  = "https://www.pharmnutrition.co.kr/bbs/login_check.php"
-    SEARCH_URL = "https://www.pharmnutrition.co.kr/shop/list_all.php"
+    SEARCH_URL = "https://www.pharmnutrition.co.kr/shop/search.php"
     ITEM_URL   = "https://www.pharmnutrition.co.kr/shop/item.php"
 
     async def login(self):
@@ -1343,7 +1358,7 @@ class PharmNutritionCrawler(BaseCrawler):
         await self._ensure_session()
 
         # 1) 검색 목록에서 it_id 추출
-        search_url = f"{self.SEARCH_URL}?stx={quote(query)}"
+        search_url = f"{self.SEARCH_URL}?q={quote(query)}"
         async with self.session.get(search_url, headers={
             **self._headers, "Referer": self.BASE,
         }) as resp:
@@ -2602,7 +2617,7 @@ PHARMNUTRITION_PRESET = {
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
-        "search_url_pattern": "/shop/list_all.php?stx={query}",
+        "search_url_pattern": "/shop/search.php?q={query}",
         "product_list": "", "product_name": "", "product_price": "",
         "product_link": "", "product_image": "",
     },
