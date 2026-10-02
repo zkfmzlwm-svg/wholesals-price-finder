@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.2
+## 현재 버전: v3.3
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -114,16 +114,23 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.2.py
+python wholesale_price_finder_v3.3.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.2.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.3.py
 ```
 
 ## 변경 이력
+- v3.3 — 유팜몰 로그인이 실제로는 항상 실패 처리되던 버그 수정. 사용자가
+  실제 계정(정상/의도적 오입력 비밀번호)으로 직접 재현해 DevTools로 확인한
+  결과, v3.0에서 도입한 `isLogin = "true"/"false"` 판정 기준이 애초에 틀린
+  전제였음 — 페이지 소스에 그냥 "false"로 고정된 placeholder라 정상
+  로그인해도 바뀌지 않음. 실제 성공/실패는 응답에 포함되는 리다이렉트
+  스크립트로 구분됨: 성공 시 `location.href='/?type=2'`, 실패 시 리다이렉트
+  없이 alert만 뜸. 판정 기준을 이 리다이렉트 존재 여부로 교체.
 - v3.2 — 팜뉴트리션(pharmnutrition.co.kr) 검색 결과 0건 버그 수정. 사이트가
   Tailwind 기반 테마로 전면 개편되면서 검색 목록 URL이
   `/shop/list_all.php?stx=`에서 `/shop/search.php?q=`로 바뀌어 있었는데
