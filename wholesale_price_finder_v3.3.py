@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.2 — Windows GUI
+도매 최저가 비교 프로그램 v3.3 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.2.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.3.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,16 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.3 — 유팜몰 로그인이 실제로는 항상 실패 처리되던 버그 수정. 사용자가 실제
+         계정(정상 비밀번호 vs 의도적으로 틀린 비밀번호)으로 직접 재현해
+         DevTools로 확인한 결과, v3.0에서 도입한 `var isLogin = "true"/"false"`
+         판정 기준이 애초에 틀린 전제였음 — 이 값은 페이지 소스에 그냥
+         "false"로 고정 박혀있는 placeholder라 실제 로그인 성공 여부와
+         무관함(정상 로그인해도 "false"로 나타남). 실제 성공/실패는 응답에
+         포함되는 클라이언트 리다이렉트 스크립트로 구분됨: 성공 시
+         `location.href='/?type=2'`(정상 로그인된 메인 화면으로 이동),
+         실패 시 이 리다이렉트 없이 `alert('회원 정보가 일치하지
+         않습니다...')`만 뜸. 판정 기준을 이 리다이렉트 존재 여부로 교체.
   v3.2 — 팜뉴트리션(pharmnutrition.co.kr) 검색 결과 0건 버그 수정. 사이트가
          Tailwind 기반 테마로 전면 개편되면서 검색 목록 URL이
          `/shop/list_all.php?stx=`에서 `/shop/search.php?q=`로 바뀌어 있었는데
@@ -129,7 +139,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.2"
+__version__ = "3.3"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -666,8 +676,18 @@ class UPharmMallCrawler(BaseCrawler):
         비로그인 상태에도 항상 포함되어 있음(정적 "/Mypage/..." 링크들,
         Logout() 함수의 "/Member/LogOut.aspx" 참조) — 이 기준으로 판정하면
         로그인 실패해도 항상 성공으로 오판해 실제로는 비로그인 세션으로
-        검색이 진행되고 결과가 조용히 0건이 됨. 서버가 실제 로그인 여부에
-        따라 다르게 렌더링하는 `var isLogin = "true"/"false";` 값으로
+        검색이 진행되고 결과가 조용히 0건이 됨.
+      - ⚠️ `var isLogin = "true"/"false";` 도 신뢰할 수 없음(v3.0에서 이 값으로
+        판정하도록 고쳤으나 틀린 전제였음) — 사용자가 실제 정상 계정으로 재현해
+        확인한 결과, 이 값은 페이지 소스에 그냥 "false"로 고정 박혀있는
+        placeholder이고 실제 로그인 여부와 무관함. 로그인 성공/실패는 클라이언트
+        스크립트 리다이렉트로 구분됨을 DevTools 캡처로 확인:
+        - 성공 시 응답 맨 앞에 `<script>location.href='/?type=2'</script>`가
+          포함되고, 브라우저는 이 스크립트를 실행해 `/?type=2`로 이동(정상
+          로그인된 메인 화면).
+        - 실패 시 이 리다이렉트가 없고 대신 `alert('회원 정보가 일치하지
+          않습니다. 다시 시도해 주시기 바랍니다.')` 류의 경고가 뜸.
+        따라서 `location.href='/?type=2'` 리다이렉트 스크립트 존재 여부로
         판정해야 함.
 
     검색 흐름 (확인됨): /Search/Search.aspx?keyword={query}(UTF-8 인코딩) → HTML 파싱
@@ -742,12 +762,13 @@ class UPharmMallCrawler(BaseCrawler):
         ) as resp:
             result_html = await resp.text()
 
-        # ⚠️ "mypage"/"logout" 문자열은 비로그인 상태 페이지에도 항상 포함되어
-        # 있음(정적 링크 "/Mypage/..." 들, Logout() 함수의 "/Member/LogOut.aspx"
-        # 참조) — 이 기준으로는 로그인 실패해도 항상 성공으로 오판하게 됨.
-        # 서버가 실제 로그인 상태에 따라 렌더링하는 `var isLogin = "true"/"false";`
-        # 값으로 판정해야 함.
-        if 'isLogin = "true"' in result_html:
+        # ⚠️ "mypage"/"logout" 문자열, `var isLogin = "true"/"false"` 모두
+        # 신뢰 불가(둘 다 비로그인 상태에도 그대로 나타남 — docstring 참고).
+        # 실제 로그인 성공 시에만 응답 맨 앞에 포함되는 `location.href='/?type=2'`
+        # 리다이렉트 스크립트로 판정 (사용자가 성공/실패 두 경우 모두 실제
+        # DevTools 캡처로 확인함).
+        login_ok = re.search(r"location\.href\s*=\s*['\"]\/\?type=2['\"]", result_html) is not None
+        if login_ok:
             self.logged_in = True
         else:
             raise LoginError(f"'{self.site_name}' 로그인 실패 — ID/비밀번호를 확인하세요.")
