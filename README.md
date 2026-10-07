@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.5
+## 현재 버전: v3.6
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -17,7 +17,7 @@
 | 플랫팜 | Next.js + NextAuth | JWT |
 | 새로팜 | Cookie 기반 (로그인/검색/목록 파싱 확인됨) | Base64 비밀번호 + OTP 2단계 |
 | 팜뉴트리션 | 그누보드 PHP (Tailwind 리뉴얼, 검색 URL 확인됨) | 폼 POST |
-| 드시모네 | Cafe24 | multipart/form-data |
+| 드시모네 | Cafe24 (로그인/검색 확인됨) | multipart/form-data + 동적 토큰 |
 | 팜스트리트 | JSP | 폼 POST |
 | 대웅더샵 | Next.js SSR + SSO (로그인/검색 확인됨) | JSON POST → SSO 리다이렉트 |
 | 동아DAPmall | 개별 크롤러 (로그인/검색/파싱 전 항목 검증 완료) | 폼 POST (평문, userId/userPw) |
@@ -100,6 +100,19 @@
 > `it_send_cost_display` 구조는 리뉴얼 후에도 동일하게 유지되고 있어 해당
 > 파싱 로직은 그대로 재사용합니다.
 >
+> 드시모네(Cafe24)는 로그인이 항상 실패하고 있었습니다. v3.6에서 DevTools로
+> 실제 로그인 요청을 재캡쳐한 결과 세 가지가 틀려 있었습니다: (1) `sLoginKey`는
+> 로그인 페이지에 박힌 고정값이 아니라 `GET /exec/front/Member/loginKey`에서
+> 시도마다 새로 발급받는 토큰(`{"sKey":"..."}`)인데 기존 코드는 페이지
+> HTML/스크립트에서 정규식으로 찾으려 해 항상 빈 문자열이었음, (2) 실제 폼에는
+> 있는 필수 필드 `member_login_csrf`(JWT, 로그인 페이지의 hidden input)가
+> 기존 코드엔 아예 없었음, (3) `sIsSnsCheckid`/`ch_ref` 필드에 실수로 다음
+> 필드명 문자열 `"sProvider"`/`"checkoutToken"`을 값으로 넣고 정작
+> `sProvider`/`checkoutToken` 필드 자체는 빠져 있었음. 세 가지 모두 수정해
+> `DesimoneCrawler`가 정상 동작합니다. 검색(`GET
+> /product/search.html?keyword={query}`)과 상품 목록 HTML 구조(`a.name`
+> 안의 span, `li[rel="판매가"]` 등)는 기존에 이미 정확했습니다.
+>
 > 서울약사신협은 사용자가 직접 확인한 로그인(`POST /member/login_chk.asp`)/
 > 검색(`GET /order/order_goods.asp`) 스펙으로 전용 크롤러(`CupharmCrawler`)가
 > 구현되어 있습니다. 비밀번호 클라이언트측 AES 암호화 여부만 미확인 상태로,
@@ -119,16 +132,28 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.5.py
+python wholesale_price_finder_v3.6.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.5.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.6.py
 ```
 
 ## 변경 이력
+- v3.6 — 드시모네(hsaless.cafe24.com) 로그인이 항상 실패하던 버그 수정.
+  DevTools로 실제 로그인 요청을 재캡쳐한 결과 세 가지가 틀려 있었음:
+  (1) `sLoginKey`는 로그인 페이지에 박힌 고정값이 아니라
+  `/exec/front/Member/loginKey`에서 시도마다 새로 발급받는 토큰인데 기존
+  코드는 페이지 HTML/스크립트에서 정규식으로 찾으려 해 항상 빈
+  문자열이었음, (2) 실제 폼에는 있는 필수 필드 `member_login_csrf`(JWT,
+  로그인 페이지의 hidden input)가 기존 코드엔 아예 없었음, (3)
+  `sIsSnsCheckid`/`ch_ref` 필드에 실수로 다음 필드명 문자열
+  `"sProvider"`/`"checkoutToken"`을 값으로 넣고 정작 `sProvider`/
+  `checkoutToken` 필드 자체는 빠져 있었음. 세 가지 모두 수정 — loginKey
+  발급 요청 추가, `member_login_csrf` 추출/전송 추가, 필드 구성을 실제
+  캡처와 동일하게 정리.
 - v3.5 — 대웅더샵 로그인이 실제로는 항상 실패 처리되던 버그 수정.
   mimsLogin 성공 응답의 SSO 리다이렉트 URL(`mims-account.shop.co.kr/
   login/direct?ot=...`)이 정적 export된 Next.js SPA 셸이라 서버 HTML에
