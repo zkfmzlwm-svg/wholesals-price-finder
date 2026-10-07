@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.3 — Windows GUI
+도매 최저가 비교 프로그램 v3.4 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.3.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.4.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,15 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.4 — 스마트팜 로그인이 실제로는 항상 실패 처리되던 버그 수정. 로그인 폼이
+         화면에 안 보이는 iframe(name="Login_iFrm")으로 제출되는 구조라
+         Login_Proc.asp 응답에는 "Logout.asp"/"로그아웃" 같은 페이지 텍스트가
+         아예 없어서 기존 판정 로직이 항상 실패로 오판하고 있었음. 사용자가
+         실제 계정으로 성공/실패 두 응답을 직접 캡처해 확인한 결과, 진짜 판정
+         기준은 iframe 안 스크립트: 성공 시
+         `parent.location.replace('/')`(부모 창을 메인 화면으로 이동), 실패 시
+         이 대신 `alert('아이디 또는 비밀번호가 잘못되었습니다.')`만 뜸.
+         판정 기준을 `parent.location.replace(` 포함 여부로 교체.
   v3.3 — 유팜몰 로그인이 실제로는 항상 실패 처리되던 버그 수정. 사용자가 실제
          계정(정상 비밀번호 vs 의도적으로 틀린 비밀번호)으로 직접 재현해
          DevTools로 확인한 결과, v3.0에서 도입한 `var isLogin = "true"/"false"`
@@ -139,7 +148,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.3"
+__version__ = "3.4"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1832,6 +1841,16 @@ class SmartPharmCrawler(BaseCrawler):
         로그아웃은 /Login/Logout.asp
       - ⚠️ 응답 페이지도 EUC-KR — search()처럼 text(encoding="euc-kr")로 읽어야
         함. 지정 없이 읽으면 UTF-8로 오판해 UnicodeDecodeError 발생.
+      - ⚠️ 로그인 폼이 화면에 안 보이는 iframe(name="Login_iFrm")으로 제출되는
+        구조라 Login_Proc.asp 응답은 그 iframe 안에만 로드됨 — 브라우저 주소창/
+        페이지는 전혀 안 바뀜. "Logout.asp"/"로그아웃" 텍스트로 성공을 판정하려던
+        기존 로직은 이 응답에 그런 텍스트가 아예 없어 항상 실패로 오판했음.
+        사용자가 실제 계정으로 성공/실패 두 경우 모두 캡처해 확인한 실제 판정
+        기준:
+        - 성공: `<script>parent.location.replace('/');</script>` (iframe 안
+          스크립트가 부모 창을 메인 페이지로 이동시킴)
+        - 실패: `<script>alert('아이디 또는 비밀번호가 잘못되었습니다.');</script>`
+        따라서 `parent.location.replace(` 포함 여부로 판정해야 함.
 
     검색 (확인됨): GET /Goods/Goods_List.asp
       - TopSearchKey: 검색어. ⚠️ 페이지 characterSet이 EUC-KR이라 반드시
@@ -1891,15 +1910,15 @@ class SmartPharmCrawler(BaseCrawler):
             # 오판해 UnicodeDecodeError가 남 (search()와 동일한 문제)
             html = await resp.text(encoding="euc-kr", errors="ignore")
 
-        if "Logout.asp" in html or "로그아웃" in html:
+        # ⚠️ 로그인 폼이 iframe으로 제출되어 이 응답에는 "Logout.asp"/"로그아웃"
+        # 같은 페이지 텍스트가 전혀 없음 — 실제 판정 기준은 iframe 안 스크립트가
+        # 부모 창을 이동시키는 parent.location.replace(...) 존재 여부
+        # (실패 시엔 이게 없고 alert(...)만 있음). 사용자가 실제 계정으로
+        # 성공/실패 두 응답 모두 캡처해 확인함.
+        if "parent.location.replace(" in html:
             self.logged_in = True
         else:
-            async with self.session.get(self.BASE, headers=self._headers) as check:
-                check_html = await check.text(encoding="euc-kr", errors="ignore")
-            if "Logout.asp" in check_html or "로그아웃" in check_html:
-                self.logged_in = True
-            else:
-                raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
 
     async def verify_login(self) -> bool:
         return self.logged_in
