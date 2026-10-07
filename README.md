@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.3
+## 현재 버전: v3.4
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -114,16 +114,23 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.3.py
+python wholesale_price_finder_v3.4.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.3.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.4.py
 ```
 
 ## 변경 이력
+- v3.4 — 스마트팜 로그인이 실제로는 항상 실패 처리되던 버그 수정. 로그인
+  폼이 화면에 안 보이는 iframe(`Login_iFrm`)으로 제출되는 구조라 응답에
+  "Logout.asp"/"로그아웃" 같은 페이지 텍스트가 아예 없어서 기존 판정이 항상
+  실패로 오판하고 있었음. 사용자가 실제 계정으로 성공/실패 응답을 직접
+  캡처해 확인: 성공 시 `parent.location.replace('/')`(부모 창 이동), 실패
+  시 `alert('아이디 또는 비밀번호가 잘못되었습니다.')`만 뜸. 판정 기준을
+  `parent.location.replace(` 포함 여부로 교체.
 - v3.3 — 유팜몰 로그인이 실제로는 항상 실패 처리되던 버그 수정. 사용자가
   실제 계정(정상/의도적 오입력 비밀번호)으로 직접 재현해 DevTools로 확인한
   결과, v3.0에서 도입한 `isLogin = "true"/"false"` 판정 기준이 애초에 틀린
