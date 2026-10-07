@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.4 — Windows GUI
+도매 최저가 비교 프로그램 v3.5 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.4.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.5.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,18 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.5 — 대웅더샵 로그인이 실제로는 항상 실패 처리되던 버그 수정. mimsLogin
+         성공 응답이 돌려주는 mims-account.shop.co.kr/login/direct?ot=...는
+         정적 export된 Next.js SPA 셸이라 서버 HTML에 리다이렉트 정보가 전혀
+         없어(meta refresh/JS 리다이렉트 둘 다 없음) 기존의 HTML 스크래핑
+         기반 리다이렉트 추적 로직이 애초에 성립할 수 없는 구조였음. 해당
+         페이지의 JS 번들을 역공학해 실제로는 별도 REST API
+         (GET mims-account.shop.co.kr/apis/auth/login/direct?ot=<토큰>)를
+         호출해야 함을 확인하고, 그 API를 직접 호출한 뒤 반환되는
+         redirectURLWithStNMk를 GET하도록 로그인 로직을 교체. 무효 토큰으로
+         실패 응답 형태(HTTP 400, errorCode "A206")는 직접 테스트로 확인했으나
+         샌드박스에 실 계정이 없어 성공 경로의 최종 쿠키 설정까지는 실 계정
+         테스트로 재확인 필요.
   v3.4 — 스마트팜 로그인이 실제로는 항상 실패 처리되던 버그 수정. 로그인 폼이
          화면에 안 보이는 iframe(name="Login_iFrm")으로 제출되는 구조라
          Login_Proc.asp 응답에는 "Logout.asp"/"로그아웃" 같은 페이지 텍스트가
@@ -148,7 +160,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.4"
+__version__ = "3.5"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -159,7 +171,7 @@ from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlparse, parse_qs
 from yarl import URL as YarlURL
 
 import tkinter as tk
@@ -2168,24 +2180,34 @@ class DaewoongTheShopCrawler(BaseCrawler):
       - 로그인 응답 확인됨:
         - 성공: {"data": "https://mims-account.shop.co.kr/login/direct?
           ot=<원타임토큰>&sv=TS"}. 세션 쿠키를 바로 안 주고 SSO 리다이렉트
-          URL을 돌려주므로, 이 URL을 한 번 더 GET해야 실제 세션이 완성됨.
+          URL을 돌려줌.
         - 실패: {"code": "FAIL", "message": "아이디 또는 비밀번호를 잘못
           입력했습니다."}
       - 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이 달라
         `.shop.co.kr` 상위 도메인 쿠키로 세션을 공유하는 SSO 구조로 추정.
       - 요청 헤더에 X-Requested-With: XMLHttpRequest, Referer:
         https://www.shop.co.kr/front/intro/login 포함 확인.
-      - 실사용자 브라우저 확인(2026-09): 실제 로그인 흐름은
-        www.shop.co.kr/front/intro/login(로그인 폼) → mims-account.shop.co.kr/
-        로 시작하는 긴 중간 페이지(SSO 처리 화면, 정확한 응답 구조/쿠키
-        설정 방식은 DevTools 재캡처 필요) → the.shop.co.kr(최종 완료) 3단계.
-        mims-account 쪽이 HTTP 302로 즉시 끝나지 않고 페이지를 렌더링한 뒤
-        the.shop.co.kr로 넘어가는 것으로 보여, meta refresh/JS 리다이렉트일
-        가능성을 염두에 두고 아래 login()에서 그런 경우까지 따라가도록 함.
-        (aiohttp는 HTTP 3xx는 자동으로 따라가지만 JS 리다이렉트는 실행하지
-        못하므로, 실제로 document.cookie 등 JS로만 쿠키를 심는 방식이라면
-        이 구현으로도 세션이 안 만들어질 수 있음 — DevTools Network 탭의
-        mims-account 응답 원문 확인이 여전히 필요함.)
+      - ⚠️ mims-account.shop.co.kr/login/direct?ot=...&sv=TS 는 "중간 페이지"가
+        아니라 완전히 클라이언트 렌더링되는 Next.js SPA 셸임을 확인(정적
+        export라 서버가 보내는 HTML에는 ot/sv 값도 리다이렉트 정보도 전혀
+        없음 — __NEXT_DATA__의 query가 항상 빈 객체). 이 URL을 단순 GET만
+        해서는(meta refresh나 JS 리다이렉트를 찾으려 해도) 아무 일도 일어나지
+        않음 — 실제 로그인 완료는 이 페이지의 JS 번들이 브라우저에서 호출하는
+        별도 REST API로 이루어짐. 해당 JS 청크(/_next/static/chunks/pages/
+        login/direct-*.js 및 공유 청크)를 직접 받아 역공학한 결과, 실제로
+        호출되는 API는:
+          GET https://mims-account.shop.co.kr/apis/auth/login/direct?ot=<토큰>
+        - 실패(무효 토큰으로 직접 확인됨): HTTP 400,
+          {"data":"fail","errorMessage":"...","errorCode":"A206",...}
+        - 성공(JS 소스상 확인): JSON에 errorMessage가 없고
+          `responseData.redirectURLWithStNMk`에 the.shop.co.kr로 보내는 최종
+          리다이렉트 URL이 들어있음 — 브라우저는 이 URL을
+          `location.replace(...)`로 한 번 더 GET하는데, 이 마지막 GET이 실제
+          the.shop.co.kr 세션 쿠키를 Set-Cookie로 심어주는 지점으로 추정됨
+          (일반적인 SSO 교환 코드 패턴과 일치). 아래 login()은 이 API를 직접
+          호출하고 반환된 redirectURLWithStNMk를 GET하도록 구현했으나, 샌드박스
+          네트워크 제약으로 실제 계정 로그인까지는 확인하지 못해 최종 쿠키
+          설정 여부는 테스트 필요.
 
     검색 (2026-09 DevTools 캡처로 확인): GET
       https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
@@ -2211,33 +2233,13 @@ class DaewoongTheShopCrawler(BaseCrawler):
         목록을 순회하는 이 크롤러 구조에서는 사용하지 않음.
     """
 
-    BASE         = "https://the.shop.co.kr"
-    LOGIN_BASE   = "https://www.shop.co.kr"
-    LOGIN_URL    = "https://www.shop.co.kr/front/api/auth/mimsLogin"
-    SEARCH_URL   = "https://the.shop.co.kr/contents/search"
-    REDIRECT_URL = "https://www.shop.co.kr/front/api/theshop/user/mapping/get_secure_check"
-    IP_ECHO_URL  = "https://api.ipify.org?format=json"
-
-    _META_REFRESH_RE = re.compile(
-        r'<meta[^>]+http-equiv=["\']?refresh["\']?[^>]+content=["\'][^"\';]*;\s*url=([^"\'\s]+)',
-        re.IGNORECASE,
-    )
-    _JS_REDIRECT_RE = re.compile(
-        r'location(?:\.href)?\s*(?:=|\.replace\()\s*["\']([^"\']+)["\']'
-    )
-
-    @classmethod
-    def _extract_client_redirect(cls, html: str, page_url: str) -> Optional[str]:
-        """mims-account.shop.co.kr 중간 페이지가 HTTP 302가 아니라 meta
-        refresh/JS로 the.shop.co.kr로 넘기는 경우를 대비해 다음 이동 URL을
-        페이지 본문에서 찾는다 (실사용자 브라우저 확인: 이 단계가 "긴 페이지"
-        로 보이는 원인일 가능성)."""
-        if not html:
-            return None
-        m = cls._META_REFRESH_RE.search(html) or cls._JS_REDIRECT_RE.search(html)
-        if not m:
-            return None
-        return urljoin(page_url, m.group(1).strip())
+    BASE          = "https://the.shop.co.kr"
+    LOGIN_BASE    = "https://www.shop.co.kr"
+    LOGIN_URL     = "https://www.shop.co.kr/front/api/auth/mimsLogin"
+    SEARCH_URL    = "https://the.shop.co.kr/contents/search"
+    REDIRECT_URL  = "https://www.shop.co.kr/front/api/theshop/user/mapping/get_secure_check"
+    TOKEN_API_URL = "https://mims-account.shop.co.kr/apis/auth/login/direct"
+    IP_ECHO_URL   = "https://api.ipify.org?format=json"
 
     async def _get_client_ip(self) -> str:
         try:
@@ -2286,28 +2288,32 @@ class DaewoongTheShopCrawler(BaseCrawler):
         if not sso_url or not str(sso_url).startswith("http"):
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
 
-        # 실사용자 확인 흐름: mims-account.shop.co.kr의 긴 중간 페이지를 거쳐
-        # the.shop.co.kr로 최종 이동함. aiohttp가 자동으로 못 따라가는 meta
-        # refresh/JS 리다이렉트일 수 있어 최대 3홉까지 직접 따라간다.
-        current_url = sso_url
-        landed_url = ""
-        for _ in range(3):
-            async with self.session.get(current_url, headers=self._headers) as hop_resp:
-                html = await hop_resp.text()
-                landed_url = str(hop_resp.url)
-            if landed_url.startswith(self.BASE):
-                break
-            redirect_to = self._extract_client_redirect(html, landed_url)
-            if not redirect_to:
-                break
-            current_url = redirect_to
+        # mims-account.shop.co.kr/login/direct?ot=...&sv=TS 는 정적 export된
+        # Next.js SPA 셸이라 서버 HTML에 리다이렉트 정보가 없음. 실제 로그인
+        # 완료는 이 페이지의 JS가 호출하는 REST API
+        # (GET .../apis/auth/login/direct?ot=<토큰>)로 이루어지므로 그 API를
+        # 직접 호출하고, 성공 시 반환되는 redirectURLWithStNMk를 GET해 최종
+        # the.shop.co.kr 세션 쿠키를 받는다.
+        parsed = urlparse(str(sso_url))
+        ot_token = (parse_qs(parsed.query).get("ot") or [""])[0]
+        if not ot_token:
+            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
 
-        # 위 홉만으로 the.shop.co.kr에 도달하지 못했다면(예: mims-account가
-        # JS로만 쿠키를 심고 이동 링크는 못 찾은 경우) 실제 사용자가 마지막에
-        # 방문하는 the.shop.co.kr 홈을 한 번 더 방문해 세션 확정을 시도한다.
-        if not landed_url.startswith(self.BASE):
-            async with self.session.get(self.BASE, headers=self._headers) as home_resp:
-                await home_resp.text()
+        async with self.session.get(
+            self.TOKEN_API_URL, params={"ot": ot_token},
+            headers={**self._headers, "Referer": str(sso_url)},
+        ) as token_resp:
+            token_json = await token_resp.json(content_type=None)
+
+        if not isinstance(token_json, dict) or token_json.get("errorMessage"):
+            msg = token_json.get("errorMessage", "") if isinstance(token_json, dict) else ""
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}" if msg else f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+
+        response_data = token_json.get("responseData") or {}
+        final_redirect = response_data.get("redirectURLWithStNMk")
+        if final_redirect:
+            async with self.session.get(final_redirect, headers=self._headers) as final_resp:
+                await final_resp.text()
 
         if not await self.verify_login():
             raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")

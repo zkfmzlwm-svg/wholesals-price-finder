@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.4
+## 현재 버전: v3.5
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -33,12 +33,17 @@
 > 분리된 SSO 구조입니다: `POST https://www.shop.co.kr/front/api/auth/mimsLogin`
 > (JSON, 필드 identifier/password/clientIP/redirectUrl)으로 로그인하면 즉시
 > 세션 쿠키를 주지 않고 `{"data": "https://mims-account.shop.co.kr/login/direct?ot=..."}`
-> 형태의 SSO 리다이렉트 URL을 반환하며, 이 URL을 한 번 더 GET해야 실제
-> 세션이 완성됩니다. 검색은 `GET https://the.shop.co.kr/contents/search
-> ?searchKey=all&searchVal={query}`, 결과 파싱은 `div.item_result_box__Xr14g`
-> 등 Next.js CSS Modules 해시 클래스를 사용합니다(사이트 재배포 시 바뀔 수
-> 있음에 유의). clientIP 값이 실제 IP가 아니어도 로그인되는지는 미확인이라,
-> 크롤러가 ipify로 실행 PC의 공인 IP를 조회해 채웁니다.
+> 형태의 SSO 리다이렉트 URL을 반환합니다. 이 URL은 "중간 페이지"가 아니라
+> 정적 export된 Next.js SPA 셸이라 서버 HTML에는 리다이렉트 정보가 전혀
+> 없습니다(v3.5에서 JS 번들 역공학으로 확인). 실제 로그인 완료는 이 페이지의
+> JS가 호출하는 `GET https://mims-account.shop.co.kr/apis/auth/login/direct
+> ?ot=<토큰>` API를 직접 호출하고, 반환되는 `responseData.redirectURLWithStNMk`를
+> 한 번 더 GET해야 the.shop.co.kr 세션이 완성되는 구조입니다. 검색은
+> `GET https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}`,
+> 결과 파싱은 `div.item_result_box__Xr14g` 등 Next.js CSS Modules 해시
+> 클래스를 사용합니다(사이트 재배포 시 바뀔 수 있음에 유의). clientIP 값이
+> 실제 IP가 아니어도 로그인되는지는 미확인이라, 크롤러가 ipify로 실행 PC의
+> 공인 IP를 조회해 채웁니다.
 >
 > 동아DAPmall은 DevTools 실캡쳐로 로그인(`POST /auth/login`, 필드 siteId/
 > userId/userPw, 평문 전송)과 검색(`GET /prod/search-list/?keywordType=ALL
@@ -114,16 +119,25 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.4.py
+python wholesale_price_finder_v3.5.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.4.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.5.py
 ```
 
 ## 변경 이력
+- v3.5 — 대웅더샵 로그인이 실제로는 항상 실패 처리되던 버그 수정.
+  mimsLogin 성공 응답의 SSO 리다이렉트 URL(`mims-account.shop.co.kr/
+  login/direct?ot=...`)이 정적 export된 Next.js SPA 셸이라 서버 HTML에
+  리다이렉트 정보가 전혀 없어, 기존의 HTML 스크래핑 기반 리다이렉트 추적
+  로직이 애초에 성립할 수 없는 구조였음. JS 번들 역공학으로 실제로는
+  `GET mims-account.shop.co.kr/apis/auth/login/direct?ot=<토큰>` API를
+  호출해야 함을 확인하고, 반환되는 `redirectURLWithStNMk`를 GET하도록
+  로그인 로직을 교체. 무효 토큰 실패 응답 형태는 직접 테스트로 확인했으나
+  샌드박스에 실 계정이 없어 성공 경로 최종 확인은 실 계정 테스트 필요.
 - v3.4 — 스마트팜 로그인이 실제로는 항상 실패 처리되던 버그 수정. 로그인
   폼이 화면에 안 보이는 iframe(`Login_iFrm`)으로 제출되는 구조라 응답에
   "Logout.asp"/"로그아웃" 같은 페이지 텍스트가 아예 없어서 기존 판정이 항상
