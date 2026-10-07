@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.2 — Windows GUI
+도매 최저가 비교 프로그램 v3.3 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.2.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.3.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,18 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.3 — 드시모네(hsaless.cafe24.com) 로그인이 항상 실패하던 버그 수정.
+         DevTools로 실제 로그인 요청을 재캡쳐한 결과 세 가지가 틀려 있었음:
+         (1) sLoginKey는 로그인 페이지에 박힌 고정값이 아니라
+         /exec/front/Member/loginKey에서 시도마다 새로 발급받는 토큰인데
+         기존 코드는 페이지 HTML/스크립트에서 정규식으로 찾으려 해 항상
+         빈 문자열이었음, (2) 실제 폼에는 있는 필수 필드 member_login_csrf
+         (JWT, 로그인 페이지의 hidden input)가 기존 코드엔 아예 없었음,
+         (3) sIsSnsCheckid/ch_ref 필드에 실수로 다음 필드명 문자열
+         "sProvider"/"checkoutToken"을 값으로 넣고 정작 sProvider/
+         checkoutToken 필드 자체는 빠져 있었음. 세 가지 모두 수정 —
+         loginKey 발급 요청 추가, member_login_csrf 추출/전송 추가,
+         필드 구성을 실제 캡처와 동일하게 정리.
   v3.2 — 팜뉴트리션(pharmnutrition.co.kr) 검색 결과 0건 버그 수정. 사이트가
          Tailwind 기반 테마로 전면 개편되면서 검색 목록 URL이
          `/shop/list_all.php?stx=`에서 `/shop/search.php?q=`로 바뀌어 있었는데
@@ -129,7 +141,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.2"
+__version__ = "3.3"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1465,10 +1477,24 @@ class DesimoneCrawler(BaseCrawler):
 
     Cafe24 플랫폼 기반 쇼핑몰.
 
-    검색 흐름 (확인됨):
-      1. 로그인:
-         a. GET  /member/login.html → sLoginKey 추출 (동적 생성 토큰)
-         b. POST /exec/front/Member/login/ → 세션 쿠키 설정
+    검색 흐름 (v3.3에서 DevTools 실캡쳐로 재확인):
+      1. 로그인 — 기존 코드가 세 가지로 틀려서 항상 실패하고 있었음:
+         a. GET  /member/login.html → hidden input `member_login_csrf`(JWT)
+            추출. ⚠️ 기존 코드엔 이 필드 자체가 없었음(필수 필드 누락).
+         b. GET  /exec/front/Member/loginKey → JSON `{"sIsPass":"T","sKey":"..."}`.
+            ⚠️ sLoginKey는 로그인 페이지에 박힌 고정값이 아니라 시도마다 이
+            엔드포인트에서 새로 발급받는 토큰. 기존 코드는 로그인 페이지
+            HTML/스크립트에서 32자리 hex를 정규식으로 찾으려 했는데, 실제
+            로그인 페이지엔 그런 값이 없어 항상 빈 문자열이었음.
+         c. POST /exec/front/Member/login/ (multipart/form-data) — 필드:
+            returnUrl, forbidIpUrl, certificationUrl, sIsSnsCheckid(빈값),
+            sProvider(빈값), ch_ref(빈값), checkoutToken(빈값), member_id,
+            member_passwd(평문), check_save_id=T, member_login_csrf(a에서
+            추출), sLoginKey(b의 sKey). ⚠️ 기존 코드는 sIsSnsCheckid 필드에
+            실수로 다음 필드명 문자열 "sProvider"를 값으로 넣고 sProvider
+            필드 자체는 안 보냈음(ch_ref/checkoutToken도 동일한 실수) —
+            즉 sIsSnsCheckid="sProvider"처럼 필드명이 값으로 밀려 들어가
+            있었고 sProvider/checkoutToken 필드는 누락되어 있었음.
       2. 검색: GET /product/search.html?keyword={query}
          - a.name span → 상품명
          - li[rel="판매가"] span.content span → 가격 (예: "9,900원")
@@ -1477,6 +1503,7 @@ class DesimoneCrawler(BaseCrawler):
 
     BASE        = "https://hsaless.cafe24.com"
     LOGIN_PAGE  = "https://hsaless.cafe24.com/member/login.html"
+    LOGIN_KEY_URL = "https://hsaless.cafe24.com/exec/front/Member/loginKey"
     LOGIN_URL   = "https://hsaless.cafe24.com/exec/front/Member/login/"
     SEARCH_URL  = "https://hsaless.cafe24.com/product/search.html"
 
@@ -1496,43 +1523,37 @@ class DesimoneCrawler(BaseCrawler):
         except Exception:
             pass
 
-        # 1) 로그인 페이지에서 sLoginKey 추출
+        # 1) 로그인 페이지에서 member_login_csrf(JWT) 추출
         async with self.session.get(self.LOGIN_PAGE, headers=self._headers) as resp:
             html = await resp.text()
 
         soup = BeautifulSoup(html, "html.parser")
+        csrf_el = soup.find("input", {"name": "member_login_csrf"})
+        csrf_token = csrf_el.get("value", "") if csrf_el else ""
+
+        # 2) sLoginKey는 로그인 시도마다 별도 엔드포인트에서 새로 발급받아야 함
         login_key = ""
+        async with self.session.get(
+            self.LOGIN_KEY_URL,
+            headers={**self._headers, "Referer": self.LOGIN_PAGE},
+        ) as resp:
+            key_data = await resp.json(content_type=None)
+            login_key = key_data.get("sKey", "")
 
-        # hidden input 탐색 (name 또는 id에 sLoginKey 포함)
-        for el in soup.find_all("input"):
-            n = el.get("name", "") or el.get("id", "")
-            if "sLoginKey" in n and el.get("value"):
-                login_key = el["value"]
-                break
-
-        # JS 변수에서 추출 (Cafe24 패턴)
-        if not login_key:
-            for script in soup.find_all("script"):
-                m = re.search(
-                    r'["\'\']sLoginKey["\'\']\s*[,:]\s*["\'\']([a-f0-9]{32})["\'\']'
-                    r'|sLoginKey\s*[=:]\s*["\'\']([a-f0-9]{32})["\'\']',
-                    script.get_text()
-                )
-                if m:
-                    login_key = m.group(1) or m.group(2)
-                    break
-
-        # 2) multipart/form-data 로그인 POST
+        # 3) multipart/form-data 로그인 POST
         import aiohttp as _aiohttp
         form = _aiohttp.FormData()
         form.add_field("returnUrl",           self.BASE + "/")
         form.add_field("forbidIpUrl",         "/index.html")
         form.add_field("certificationUrl",    "/intro/adult_certification.html")
-        form.add_field("sIsSnsCheckid",       "sProvider")
-        form.add_field("ch_ref",              "checkoutToken")
+        form.add_field("sIsSnsCheckid",       "")
+        form.add_field("sProvider",           "")
+        form.add_field("ch_ref",              "")
+        form.add_field("checkoutToken",       "")
         form.add_field("member_id",           username)
         form.add_field("member_passwd",       password)
         form.add_field("check_save_id",       "T")
+        form.add_field("member_login_csrf",   csrf_token)
         form.add_field("sLoginKey",           login_key)
 
         post_headers = {k: v for k, v in self._headers.items() if k.lower() != "content-type"}
