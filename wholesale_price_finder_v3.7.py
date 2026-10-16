@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.6 — Windows GUI
+도매 최저가 비교 프로그램 v3.7 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.6.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.7.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,26 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.7 — 전 사이트 '마스크' 검색 + 더미(틀린) 계정 라이브 테스트로 찾은 로그인
+         판정 버그 일괄 수정. 틀린 계정인데도 "성공"으로 넘어가 오류 없이 0건이
+         나오거나 엉뚱한 오류 문구가 뜨던 문제들:
+         - 한미몰: DWR 3 CSRF 보호 때문에 로그인 요청이 계정 검증 전에
+           'CSRF Security Error'로 거부되고 있었음(맞는 계정도 로그인 불가).
+           HTTP 200만 보고 성공 처리 → 검색이 로그인 페이지로 리다이렉트되어
+           "Expecting value..." JSON 오류가 표시됐음. __System.generateId로
+           DWRSESSIONID를 발급받는 세션 핸드셰이크 추가, 응답의 auth:null/
+           message로 실패 판정, 값은 engine.js와 같이 encodeURIComponent 인코딩.
+         - 팜뉴트리션: 실패 응답(HTTP 200 + alert)을 성공으로 오판하던 판정
+           수정. 또 상품 it_id가 "Z-HF016"처럼 영문/하이픈 포함인데 정규식이
+           숫자만 받아 로그인 여부와 무관하게 검색이 항상 0건이던 버그 수정.
+         - 드시모네: member_login_csrf는 로그인 페이지 HTML에 없고 /shop1/api/
+           member/LoginSaveid 응답으로 발급되는 값이라 v3.6은 항상 빈 토큰을
+           보냄 → HTTP 403을 성공으로 오판. 토큰 발급 경로 수정 + 로그인
+           페이지로 되돌려 보내는지(alert 메시지 포함)로 실패 판정.
+         - 대웅더샵: 실패 응답에 message가 없을 때 "로그인 실패: "로 사유가
+           비어 보이던 문구 보완.
+         - 계정 미설정 사이트: requires_login인데 아이디가 없으면 비로그인으로
+           조용히 검색해 "0건⚠"만 뜨던 것을 "로그인 정보 미설정" 오류로 표시.
   v3.6 — 드시모네(hsaless.cafe24.com) 로그인이 항상 실패하던 버그 수정.
          DevTools로 실제 로그인 요청을 재캡쳐한 결과 세 가지가 틀려 있었음:
          (1) sLoginKey는 로그인 페이지에 박힌 고정값이 아니라
@@ -172,7 +192,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.6"
+__version__ = "3.7"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -428,6 +448,9 @@ def get_site_password(site: dict) -> str:
 class LoginError(Exception):
     pass
 
+# encodeURIComponent()가 인코딩하지 않는 문자 집합 (영숫자와 -_.~ 는 quote 기본값)
+DWR_SAFE = "!*'()"
+
 class BaseCrawler(ABC):
     def __init__(self, site_config: dict):
         self.config = site_config
@@ -518,6 +541,18 @@ class BaseCrawler(ABC):
     @staticmethod
     def clean_text(text):
         return re.sub(r"\s+", " ", text).strip() if text else ""
+
+    @staticmethod
+    def extract_alert(html):
+        m = re.search(r"""alert\(\s*(["'])(.*?)\1\s*\)""", html or "", re.S)
+        if not m:
+            return None
+        return re.sub(r"\s+", " ", m.group(2).replace("\\n", " ")).strip()
+
+    @staticmethod
+    def extract_js_redirect(html):
+        m = re.search(r"""location\.(?:replace\(|href\s*=)\s*(["'])(.*?)\1""", html or "")
+        return m.group(2) if m else None
 
     def full_url(self, path):
         if not path: return self.base_url
@@ -891,8 +926,22 @@ class HMPMallCrawler(BaseCrawler):
     한미몰 (hmpmall.co.kr) 전용 크롤러.
 
     검색 흐름 (확인됨):
-      1. 로그인: DWR(Direct Web Remoting) POST
+      1. 로그인: DWR(Direct Web Remoting) POST — v3.7에서 더미 계정으로 직접 확인:
+         - DWR 3 CSRF 보호 때문에 세션 핸드셰이크가 필수. 이전 코드처럼
+           scriptSessionId를 임의로 만들어 보내면 계정 검증 전에
+           `handleBatchException(... 'CSRF Security Error')`로 거부됨
+           (응답은 HTTP 200이라 기존 코드는 이를 성공으로 오판했음).
+         - 올바른 순서: GET /login.do(JSESSIONID) →
+           POST /dwr/call/plaincall/__System.generateId.dwr →
+           `handleCallback("0","0","<id>")`의 id를 DWRSESSIONID 쿠키로 설정 →
+           scriptSessionId=<id>/<임의 10자>로 Login.execute 호출.
+         - 실패 응답: handleCallback(..., {auth:null, isReceived:false,
+           message:"아이디 또는 비밀번호를 잘못 입력하셨습니다 ...",
+           ipCheckSuccess:"Y"}). 성공 시 auth가 null이 아닐 것으로 추정
+           (실계정 미확인).
       2. 검색:   /search/searchTwoStepListData.do → JSON
+         - 비로그인이면 302로 /login.do HTML이 와서 JSON 파싱이 깨짐 →
+           로그인 필요 오류로 변환
          - productList[].viewProductName: 상품명
          - productList[].minProductUnitPrice: 최저가
          - productList[].manufacturerName: 제조사
@@ -901,9 +950,10 @@ class HMPMallCrawler(BaseCrawler):
          - productList[].productMasterImgUrl: 이미지
     """
 
-    BASE       = "https://hmpmall.co.kr"
-    LOGIN_URL  = "https://hmpmall.co.kr/dwr/call/plaincall/common/Login.execute.dwr"
-    SEARCH_URL = "https://hmpmall.co.kr/search/searchTwoStepListData.do"
+    BASE            = "https://hmpmall.co.kr"
+    LOGIN_URL       = "https://hmpmall.co.kr/dwr/call/plaincall/common/Login.execute.dwr"
+    GENERATE_ID_URL = "https://hmpmall.co.kr/dwr/call/plaincall/__System.generateId.dwr"
+    SEARCH_URL      = "https://hmpmall.co.kr/search/searchTwoStepListData.do"
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -914,9 +964,31 @@ class HMPMallCrawler(BaseCrawler):
             raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
 
         await self._ensure_session()
+        dwr_headers = {**self._headers, "Content-Type": "text/plain", "Referer": f"{self.BASE}/login.do"}
 
-        # DWR 로그인 요청 생성
-        script_session_id = f"{random.randint(100000, 999999)}/{random.randint(100000000, 999999999)}"
+        async with self.session.get(f"{self.BASE}/login.do", headers=self._headers) as resp:
+            await resp.text()
+
+        gen_body = (
+            "callCount=1\n"
+            "c0-scriptName=__System\n"
+            "c0-methodName=generateId\n"
+            "c0-id=0\n"
+            "batchId=0\n"
+            "instanceId=0\n"
+            "page=%2Flogin.do\n"
+            "scriptSessionId=\n"
+            "windowName=\n"
+        )
+        async with self.session.post(self.GENERATE_ID_URL, data=gen_body.encode("utf-8"), headers=dwr_headers) as resp:
+            gen_text = await resp.text()
+        m = re.search(r'handleCallback\("0","0","([^"]+)"\)', gen_text)
+        if not m:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: DWR 세션 발급 실패")
+        dwr_session_id = m.group(1)
+        self.session.cookie_jar.update_cookies({"DWRSESSIONID": dwr_session_id}, response_url=YarlURL(self.BASE))
+        page_id = "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", k=10))
+
         dwr_body = (
             "callCount=1\n"
             "nextReverseAjaxIndex=0\n"
@@ -925,36 +997,34 @@ class HMPMallCrawler(BaseCrawler):
             "c0-id=0\n"
             "c0-e1=string:\n"
             "c0-e2=string:2350001\n"
-            f"c0-e3=string:{username}\n"
-            f"c0-e4=string:{password}\n"
+            f"c0-e3=string:{quote(username, safe=DWR_SAFE)}\n"
+            f"c0-e4=string:{quote(password, safe=DWR_SAFE)}\n"
             "c0-e5=string:on\n"
             "c0-param0=Object_Object:{mallDivCode:reference:c0-e1, "
             "loginPathDivCode:reference:c0-e2, memId:reference:c0-e3, "
             "memPw:reference:c0-e4, cookieID:reference:c0-e5}\n"
-            "batchId=0\n"
+            "batchId=1\n"
             "instanceId=0\n"
-            "page=/login.do\n"
-            f"scriptSessionId={script_session_id}\n"
+            "page=%2Flogin.do\n"
+            f"scriptSessionId={dwr_session_id}/{page_id}\n"
         )
+        async with self.session.post(self.LOGIN_URL, data=dwr_body.encode("utf-8"), headers=dwr_headers) as resp:
+            reply = await resp.text()
 
-        async with self.session.post(
-            self.LOGIN_URL,
-            data=dwr_body.encode("utf-8"),
-            headers={
-                **self._headers,
-                "Content-Type": "text/plain",
-                "Referer": f"{self.BASE}/login.do",
-            },
-        ) as resp:
-            # 로그인 성공 시 JSESSIONID 쿠키가 설정됨
-            cookies = self.session.cookie_jar.filter_cookies(YarlURL(self.BASE))
-            if any("JSESSIONID" in str(c) for c in cookies):
-                self.logged_in = True
-            elif resp.status == 200:
-                # 쿠키 이름이 다를 수 있으므로 200 응답이면 일단 성공 처리
-                self.logged_in = True
-            else:
-                raise LoginError(f"'{self.site_name}' 로그인 실패")
+        if "handleBatchException" in reply or "handleException" in reply:
+            em = re.search(r"message:'([^']*)'", reply)
+            raise LoginError(f"'{self.site_name}' 로그인 요청 거부: {em.group(1) if em else '서버 오류'}")
+        if re.search(r"\bauth\s*:\s*null\b", reply) or "handleCallback" not in reply:
+            em = re.search(r'message\s*:\s*"((?:[^"\\]|\\.)*)"', reply)
+            msg = ""
+            if em:
+                try:
+                    msg = json.loads(f'"{em.group(1)}"')
+                except ValueError:
+                    msg = em.group(1)
+            msg = self.clean_text(msg) or "ID/비밀번호를 확인하세요."
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
+        self.logged_in = True
 
     async def verify_login(self) -> bool:
         return self.logged_in
@@ -981,6 +1051,8 @@ class HMPMallCrawler(BaseCrawler):
                 "X-Requested-With": "XMLHttpRequest",
             },
         ) as resp:
+            if "login.do" in str(resp.url):
+                raise LoginError(f"'{self.site_name}' 로그인이 필요합니다 (비로그인 상태로 검색 차단됨)")
             if resp.status != 200:
                 return []
             data = await resp.json(content_type=None)
@@ -1392,18 +1464,17 @@ class PharmNutritionCrawler(BaseCrawler):
             allow_redirects=False,
         ) as resp:
             location = resp.headers.get("Location", "")
-            if self.BASE in location or "pharmnutrition" in location:
-                self.logged_in = True
-            else:
-                # 리다이렉트 따라가서 로그인 여부 확인
-                async with self.session.get(
-                    self.BASE, headers=self._headers
-                ) as check:
-                    html = await check.text()
-                    if "로그아웃" in html or "mb_id" not in html:
-                        self.logged_in = True
-                    else:
-                        raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+            body = await resp.text()
+
+        # 성공: 그누보드 goto_url() → 302 Location(로그인 페이지 아닌 곳)
+        # 실패: HTTP 200 오류안내 페이지 + alert("가입된 회원아이디가 아니거나
+        #       비밀번호가 틀립니다...") + location.replace(".../bbs/login.php")
+        target = location or self.extract_js_redirect(body) or ""
+        if target and "login.php" not in target:
+            self.logged_in = True
+            return
+        alert_msg = self.extract_alert(body) or "ID/비밀번호를 확인하세요."
+        raise LoginError(f"'{self.site_name}' 로그인 실패: {alert_msg}")
 
     async def verify_login(self) -> bool:
         return self.logged_in
@@ -1420,12 +1491,13 @@ class PharmNutritionCrawler(BaseCrawler):
 
         soup = BeautifulSoup(html, "html.parser")
 
-        # <a href="/shop/item.php?it_id=XXXX"> 패턴 추출
+        # <a href=".../shop/item.php?it_id=XXXX"> 패턴 추출
+        # it_id는 숫자만이 아니라 "Z-HF016"처럼 영문/하이픈이 섞여 있음
         it_ids = []
         seen = set()
         for a in soup.select('a[href*="item.php?it_id="]'):
             href = a.get("href", "")
-            m = re.search(r"it_id=(\d+)", href)
+            m = re.search(r"it_id=([^&\"'#\s]+)", href)
             if m:
                 it_id = m.group(1)
                 if it_id not in seen:
@@ -1521,8 +1593,13 @@ class DesimoneCrawler(BaseCrawler):
 
     검색 흐름 (v3.6에서 DevTools 실캡쳐로 재확인):
       1. 로그인 — 기존 코드가 세 가지로 틀려서 항상 실패하고 있었음:
-         a. GET  /member/login.html → hidden input `member_login_csrf`(JWT)
-            추출. ⚠️ 기존 코드엔 이 필드 자체가 없었음(필수 필드 누락).
+         a. `member_login_csrf`(JWT) 필수. ⚠️ v3.7에서 재확인: 이 값은 로그인
+            페이지 HTML에 없음 — 페이지 JS가 POST /shop{N}/api/member/
+            LoginSaveid (body "&mode=logoff") 응답의 data.csrf_key/
+            csrf_token을 폼에 주입하는 구조. v3.6은 HTML에서 찾아 항상 빈
+            값이었고, 토큰 없이 POST하면 HTTP 403이 오는데 이를 성공으로
+            오판했음. 실패 응답(더미 계정 확인): HTTP 200 + alert('아이디
+            또는 비밀번호가 일치하지 않습니다.').
          b. GET  /exec/front/Member/loginKey → JSON `{"sIsPass":"T","sKey":"..."}`.
             ⚠️ sLoginKey는 로그인 페이지에 박힌 고정값이 아니라 시도마다 이
             엔드포인트에서 새로 발급받는 토큰. 기존 코드는 로그인 페이지
@@ -1565,22 +1642,36 @@ class DesimoneCrawler(BaseCrawler):
         except Exception:
             pass
 
-        # 1) 로그인 페이지에서 member_login_csrf(JWT) 추출
         async with self.session.get(self.LOGIN_PAGE, headers=self._headers) as resp:
             html = await resp.text()
+        shop_m = re.search(r"SDE_SHOP_NUM\s*[:=]\s*['\"]?(\d+)", html)
+        shop_num = shop_m.group(1) if shop_m else "1"
 
-        soup = BeautifulSoup(html, "html.parser")
-        csrf_el = soup.find("input", {"name": "member_login_csrf"})
-        csrf_token = csrf_el.get("value", "") if csrf_el else ""
+        # 1) member_login_csrf(JWT)는 로그인 페이지 HTML에 없고, 페이지 JS가
+        #    /shop{N}/api/member/LoginSaveid 응답의 data.csrf_key/csrf_token을
+        #    폼 hidden 필드로 주입함 (Cafe24 ECHOSTING-626783)
+        ajax_headers = {
+            **self._headers,
+            "Referer": self.LOGIN_PAGE,
+            "X-Requested-With": "XMLHttpRequest",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        }
+        csrf_key, csrf_token = "member_login_csrf", ""
+        async with self.session.post(
+            f"{self.BASE}/shop{shop_num}/api/member/LoginSaveid",
+            data="&mode=logoff", headers=ajax_headers,
+        ) as resp:
+            saveid = await resp.json(content_type=None)
+        csrf_data = (saveid or {}).get("data") or {}
+        csrf_key = csrf_data.get("csrf_key") or csrf_key
+        csrf_token = csrf_data.get("csrf_token", "")
+        if not csrf_token:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 보안 토큰(member_login_csrf) 발급 실패")
 
         # 2) sLoginKey는 로그인 시도마다 별도 엔드포인트에서 새로 발급받아야 함
-        login_key = ""
-        async with self.session.get(
-            self.LOGIN_KEY_URL,
-            headers={**self._headers, "Referer": self.LOGIN_PAGE},
-        ) as resp:
+        async with self.session.post(self.LOGIN_KEY_URL, headers=ajax_headers) as resp:
             key_data = await resp.json(content_type=None)
-            login_key = key_data.get("sKey", "")
+        login_key = (key_data or {}).get("sKey", "")
 
         # 3) multipart/form-data 로그인 POST
         import aiohttp as _aiohttp
@@ -1595,7 +1686,7 @@ class DesimoneCrawler(BaseCrawler):
         form.add_field("member_id",           username)
         form.add_field("member_passwd",       password)
         form.add_field("check_save_id",       "T")
-        form.add_field("member_login_csrf",   csrf_token)
+        form.add_field(csrf_key,              csrf_token)
         form.add_field("sLoginKey",           login_key)
 
         post_headers = {k: v for k, v in self._headers.items() if k.lower() != "content-type"}
@@ -1604,23 +1695,22 @@ class DesimoneCrawler(BaseCrawler):
         async with self.session.post(
             self.LOGIN_URL, data=form,
             headers=post_headers,
-            allow_redirects=True,
+            allow_redirects=False,
         ) as resp:
-            final_url  = str(resp.url)
-            resp_html  = await resp.text()
+            status = resp.status
+            location = resp.headers.get("Location", "")
+            resp_html = await resp.text()
 
-        # 실패 URL 패턴
-        if any(p in final_url for p in ["/member/login", "login_fail"]):
-            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
-
-        # 성공 패턴
-        ok = any(p in resp_html.lower() for p in ["로그아웃", "logout", "마이페이지", username.lower()])
-        if ok or "/member/login" not in final_url:
-            self.logged_in = True
-        else:
-            raise LoginError(
-                f"'{self.site_name}' 로그인 실패 (최종 URL: {final_url})"
-            )
+        # 실패(확인됨): HTTP 200 + alert('아이디 또는 비밀번호가 일치하지
+        #   않습니다.') + location.replace('.../member/login.html')
+        # CSRF 검증 실패(확인됨): HTTP 403 오류 페이지
+        if status >= 400:
+            raise LoginError(f"'{self.site_name}' 로그인 요청 거부 (HTTP {status})")
+        target = location or self.extract_js_redirect(resp_html) or ""
+        if "member/login" in target.lower():
+            alert_msg = self.extract_alert(resp_html) or "ID/비밀번호를 확인하세요."
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {alert_msg}")
+        self.logged_in = True
 
 
     async def verify_login(self) -> bool:
@@ -2302,7 +2392,8 @@ class DaewoongTheShopCrawler(BaseCrawler):
         # 성공: 세션 쿠키를 바로 주지 않고 SSO 리다이렉트 URL을 data
         #       필드로 반환함 (mims-account.shop.co.kr/login/direct?ot=...).
         if isinstance(resp_json, dict) and resp_json.get("code") == "FAIL":
-            msg = resp_json.get("message", "")
+            # 존재하지 않는 아이디 등은 message 없이 {"code":"FAIL"}만 옴
+            msg = resp_json.get("message") or "ID/비밀번호를 확인하세요."
             raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
 
         sso_url = resp_json.get("data") if isinstance(resp_json, dict) else None
@@ -2869,7 +2960,10 @@ async def search_site(sc, query, max_results):
     start = time.time(); crawler = None
     try:
         crawler = create_crawler(sc)
-        if sc.get("requires_login") or sc.get("credentials", {}).get("username"):
+        has_username = bool(sc.get("credentials", {}).get("username"))
+        if sc.get("requires_login") and not has_username:
+            raise LoginError("로그인 정보 미설정 — '🔑 로그인 설정'에서 계정을 입력하세요")
+        if has_username:
             await crawler.login()
         products = await crawler.search(query, max_results)
         return SearchResult(sc["name"], query, products, elapsed_sec=round(time.time()-start, 2))
