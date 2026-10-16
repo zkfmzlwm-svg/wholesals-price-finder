@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.6
+## 현재 버전: v3.7
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -13,7 +13,7 @@
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
 | 유팜몰 | ASP.NET WebForms (로그인/검색/목록 파싱 확인됨) | ViewState POST |
-| 한미몰 | Spring + DWR | DWR 특수 포맷 |
+| 한미몰 | Spring + DWR (로그인 실패 응답 확인됨) | DWR 특수 포맷 + DWRSESSIONID 핸드셰이크 |
 | 플랫팜 | Next.js + NextAuth | JWT |
 | 새로팜 | Cookie 기반 (로그인/검색/목록 파싱 확인됨) | Base64 비밀번호 + OTP 2단계 |
 | 팜뉴트리션 | 그누보드 PHP (Tailwind 리뉴얼, 검색 URL 확인됨) | 폼 POST |
@@ -109,7 +109,12 @@
 > 기존 코드엔 아예 없었음, (3) `sIsSnsCheckid`/`ch_ref` 필드에 실수로 다음
 > 필드명 문자열 `"sProvider"`/`"checkoutToken"`을 값으로 넣고 정작
 > `sProvider`/`checkoutToken` 필드 자체는 빠져 있었음. 세 가지 모두 수정해
-> `DesimoneCrawler`가 정상 동작합니다. 검색(`GET
+> `DesimoneCrawler`가 정상 동작합니다. 단, v3.7에서 다시 확인해보니
+> `member_login_csrf`는 로그인 페이지 hidden input이 아니라 페이지 JS가
+> `POST /shop1/api/member/LoginSaveid`(body `&mode=logoff`) 응답의
+> `data.csrf_token`을 폼에 주입하는 값이었고, v3.6은 이를 HTML에서 찾아 항상
+> 빈 토큰을 보내 HTTP 403을 받고 있었습니다(이를 성공으로 오판). 토큰 발급
+> 경로를 고쳤습니다. 검색(`GET
 > /product/search.html?keyword={query}`)과 상품 목록 HTML 구조(`a.name`
 > 안의 span, `li[rel="판매가"]` 등)는 기존에 이미 정확했습니다.
 >
@@ -132,16 +137,25 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.6.py
+python wholesale_price_finder_v3.7.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.6.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.7.py
 ```
 
 ## 변경 이력
+- v3.7 — 전 사이트 '마스크' 검색 + 더미(틀린) 계정 라이브 테스트로 찾은 로그인
+  판정 버그 일괄 수정. 한미몰: DWR CSRF 핸드셰이크(`__System.generateId` →
+  `DWRSESSIONID`) 누락으로 맞는 계정도 로그인이 안 되던 문제 수정, 실패 판정을
+  `auth:null`/message 기준으로 변경. 팜뉴트리션: 실패(alert) 응답을 성공으로
+  오판하던 판정 수정 + 상품 `it_id`(예: `Z-HF016`)를 숫자만 받던 정규식 때문에
+  검색이 항상 0건이던 버그 수정. 드시모네: `member_login_csrf`를
+  `LoginSaveid` API에서 받도록 수정(v3.6은 항상 빈 토큰 → 403을 성공으로 오판).
+  대웅더샵: 실패 사유가 빈 문자열로 보이던 문구 보완. 계정 미설정 사이트는
+  조용히 0건 대신 "로그인 정보 미설정" 오류로 표시.
 - v3.6 — 드시모네(hsaless.cafe24.com) 로그인이 항상 실패하던 버그 수정.
   DevTools로 실제 로그인 요청을 재캡쳐한 결과 세 가지가 틀려 있었음:
   (1) `sLoginKey`는 로그인 페이지에 박힌 고정값이 아니라
