@@ -13,7 +13,7 @@
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
 | 유팜몰 | ASP.NET WebForms (로그인/검색/목록 파싱 확인됨) | ViewState POST |
-| 한미몰 | Spring + DWR (로그인 실패 응답 확인됨) | DWR 특수 포맷 + DWRSESSIONID 핸드셰이크 |
+| 한미몰 | Spring + DWR (실계정 로그인/검색 확인됨, www 도메인 필수) | DWR 특수 포맷 + DWRSESSIONID 핸드셰이크 |
 | 플랫팜 | Next.js + NextAuth | JWT |
 | 새로팜 | Cookie 기반 (로그인/검색/목록 파싱 확인됨) | Base64 비밀번호 + OTP 2단계 |
 | 팜뉴트리션 | 그누보드 PHP (Tailwind 리뉴얼, 검색 URL 확인됨) | 폼 POST |
@@ -147,7 +147,10 @@ pyinstaller --onefile --windowed wholesale_price_finder_v3.9.py
 ```
 
 ## 변경 이력
-- v3.9 — 드시모네 로그인에 브라우저와 같은 `CheckCaptcha` 확인 단계 추가(캡차
+- v3.9 — 한미몰 "DWR 세션 발급 실패" 수정: `hmpmall.co.kr` → `www.hmpmall.co.kr`
+  301 리다이렉트가 새로 생겨 DWR POST 본문이 유실되던 문제(서버 응답 "Failed to
+  find parameter: batchId")를 www 주소 직접 사용으로 해결, 성공 판정을 사이트
+  JS와 같은 `isReceived` 기준으로 변경. 드시모네 로그인에 브라우저와 같은 `CheckCaptcha` 확인 단계 추가(캡차
   필요 시 원인 안내). 사이트 JS 재확인 결과 https에서는 비밀번호를 평문 그대로
   제출하므로 앱 요청은 브라우저와 동일 — 실패는 계정 정보 문제이며, 간편로그인
   (카카오/네이버 등) 가입 계정은 ID/PW 로그인이 불가함을 오류 메시지로 안내.

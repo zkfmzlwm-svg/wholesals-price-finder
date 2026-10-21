@@ -14,7 +14,13 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
-  v3.9 — 드시모네 로그인을 브라우저 동작과 완전히 일치시킴: 제출 직전
+  v3.9 — 한미몰 "로그인 실패: DWR 세션 발급 실패" 수정. 사이트에 hmpmall.co.kr
+         → www.hmpmall.co.kr 301 리다이렉트가 새로 생겨, aiohttp가 리다이렉트를
+         따라가며 DWR POST를 GET으로 바꾸고 본문을 버림 → 서버가 "Failed to find
+         parameter: batchId"로 거부. Chromium으로 실제 브라우저 요청을 캡처해
+         확인 후 모든 주소를 www로 직접 사용. 성공 판정도 사이트 login.js와
+         같게 isReceived/ipCheckSuccess 기준으로 바꾸고 휴면·IP 차단을 안내.
+         드시모네 로그인을 브라우저 동작과 완전히 일치시킴: 제출 직전
          CheckCaptcha 호출 추가(실패 누적으로 캡차가 필요하면 원인을 명확히
          안내). 사이트 JS 재확인 결과 https에서는 비밀번호를 평문 그대로
          제출하므로 앱 요청은 브라우저와 동일 — 서버의 "아이디 또는 비밀번호가
@@ -350,7 +356,7 @@ MEMO_PATH = Path(__file__).parent / "memo.dat"
 SITE_SEARCH_PATTERNS = {
     "바로팜":  "https://www.baropharm.com/order?q={query}",
     "유팜몰":  "https://www.upharmmall.co.kr/Search/Search.aspx?keyword={query}",
-    "한미몰":  "https://hmpmall.co.kr/search/searchTwoStepList.do?productName={query}",
+    "한미몰":  "https://www.hmpmall.co.kr/search/searchTwoStepList.do?productName={query}",
     "플랫팜":  "https://www.platpharm.co.kr/search?qs={query}",
     "새로팜":  "https://www.saeropharm.com/w/product/searchProductList.do?mainSchValue={query}",
     "서울약사신협": "https://www.cupharm.kr/order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&page=1&s_w12_flag=P&search_flg=ok&w14_user_type=1&search_type=2",
@@ -964,8 +970,16 @@ class HMPMallCrawler(BaseCrawler):
            scriptSessionId=<id>/<임의 10자>로 Login.execute 호출.
          - 실패 응답: handleCallback(..., {auth:null, isReceived:false,
            message:"아이디 또는 비밀번호를 잘못 입력하셨습니다 ...",
-           ipCheckSuccess:"Y"}). 성공 시 auth가 null이 아닐 것으로 추정
-           (실계정 미확인).
+           ipCheckSuccess:"Y"}).
+         - 성공 판정(v3.9, 사이트 login.js 확인): res.isReceived가 true이고
+           ipCheckSuccess == "Y"면 성공. member.drmntYn == "Y"면 휴면 계정,
+           member.changePasswordYn == "Y"면 비밀번호 변경 페이지로 보내지만
+           로그인 자체는 성공.
+         - ⚠️ 2026-10 무렵부터 hmpmall.co.kr → www.hmpmall.co.kr 301 리다이렉트가
+           생김. aiohttp는 301을 따라가며 POST를 GET으로 바꾸고 본문을 버려서
+           DWR 서버가 "Failed to find parameter: batchId"로 거부했음 → 모든
+           주소를 www.hmpmall.co.kr로 직접 사용 (Chromium으로 실제 브라우저
+           요청을 캡처해 확인).
       2. 검색:   /search/searchTwoStepListData.do → JSON
          - 비로그인이면 302로 /login.do HTML이 와서 JSON 파싱이 깨짐 →
            로그인 필요 오류로 변환
@@ -977,10 +991,10 @@ class HMPMallCrawler(BaseCrawler):
          - productList[].productMasterImgUrl: 이미지
     """
 
-    BASE            = "https://hmpmall.co.kr"
-    LOGIN_URL       = "https://hmpmall.co.kr/dwr/call/plaincall/common/Login.execute.dwr"
-    GENERATE_ID_URL = "https://hmpmall.co.kr/dwr/call/plaincall/__System.generateId.dwr"
-    SEARCH_URL      = "https://hmpmall.co.kr/search/searchTwoStepListData.do"
+    BASE            = "https://www.hmpmall.co.kr"
+    LOGIN_URL       = "https://www.hmpmall.co.kr/dwr/call/plaincall/common/Login.execute.dwr"
+    GENERATE_ID_URL = "https://www.hmpmall.co.kr/dwr/call/plaincall/__System.generateId.dwr"
+    SEARCH_URL      = "https://www.hmpmall.co.kr/search/searchTwoStepListData.do"
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -1011,7 +1025,8 @@ class HMPMallCrawler(BaseCrawler):
             gen_text = await resp.text()
         m = re.search(r'handleCallback\("0","0","([^"]+)"\)', gen_text)
         if not m:
-            raise LoginError(f"'{self.site_name}' 로그인 실패: DWR 세션 발급 실패")
+            em = re.search(r"message:'([^']*)'", gen_text)
+            raise LoginError(f"'{self.site_name}' 로그인 실패: DWR 세션 발급 실패 ({em.group(1) if em else gen_text[:80]})")
         dwr_session_id = m.group(1)
         self.session.cookie_jar.update_cookies({"DWRSESSIONID": dwr_session_id}, response_url=YarlURL(self.BASE))
         page_id = "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", k=10))
@@ -1041,16 +1056,27 @@ class HMPMallCrawler(BaseCrawler):
         if "handleBatchException" in reply or "handleException" in reply:
             em = re.search(r"message:'([^']*)'", reply)
             raise LoginError(f"'{self.site_name}' 로그인 요청 거부: {em.group(1) if em else '서버 오류'}")
-        if re.search(r"\bauth\s*:\s*null\b", reply) or "handleCallback" not in reply:
-            em = re.search(r'message\s*:\s*"((?:[^"\\]|\\.)*)"', reply)
-            msg = ""
-            if em:
-                try:
-                    msg = json.loads(f'"{em.group(1)}"')
-                except ValueError:
-                    msg = em.group(1)
-            msg = self.clean_text(msg) or "ID/비밀번호를 확인하세요."
-            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
+        if "handleCallback" not in reply:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 예상하지 못한 DWR 응답 ({reply[:80]})")
+
+        # 판정 기준은 사이트 login.js와 동일: res.isReceived → res.ipCheckSuccess
+        # → res.member.drmntYn(휴면) / changePasswordYn(비밀번호 변경 권유, 로그인은 성공)
+        em = re.search(r'message\s*:\s*"((?:[^"\\]|\\.)*)"', reply)
+        msg = ""
+        if em:
+            try:
+                msg = json.loads(f'"{em.group(1)}"')
+            except ValueError:
+                msg = em.group(1)
+        msg = self.clean_text(msg)
+        received = re.search(r"\bisReceived\s*:\s*(true|false)", reply)
+        if not received or received.group(1) != "true":
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg or 'ID/비밀번호를 확인하세요.'}")
+        ip_check = re.search(r'\bipCheckSuccess\s*:\s*"([^"]*)"', reply)
+        if ip_check and ip_check.group(1) != "Y":
+            raise LoginError(f"'{self.site_name}' 접속 IP가 비정상 IP로 분류되어 로그인할 수 없습니다")
+        if re.search(r'\bdrmntYn\s*:\s*"Y"', reply):
+            raise LoginError(f"'{self.site_name}' 휴면 계정입니다 — 사이트에서 휴면 해제 후 이용하세요")
         self.logged_in = True
 
     async def verify_login(self) -> bool:
@@ -2765,11 +2791,11 @@ HMPMALL_PRESET = {
     "builtin": True,
     "crawler_type": "hmpmall",
     "builtin_id": "hmpmall",
-    "base_url": "https://hmpmall.co.kr",
+    "base_url": "https://www.hmpmall.co.kr",
     "requires_login": True,
     "credentials": {"username": "", "password_encrypted": ""},
     "login_config": {
-        "login_url": "https://hmpmall.co.kr/dwr/call/plaincall/common/Login.execute.dwr",
+        "login_url": "https://www.hmpmall.co.kr/dwr/call/plaincall/common/Login.execute.dwr",
         "login_method": "custom",
         "login_fields": {"memId": "{username}", "memPw": "{password}"},
         "csrf_selector": None, "csrf_field_name": None,
