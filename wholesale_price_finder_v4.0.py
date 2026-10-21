@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.9 — Windows GUI
+도매 최저가 비교 프로그램 v4.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.9.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v4.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,16 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v4.0 — 스마트팜 검색이 로그인 상태에서도 항상 0건이던 버그 수정. 사용자
+         DevTools 캡처 결과 브라우저는 상단 검색창으로 POST /Goods/Goods.asp를
+         먼저 제출하고, 그 페이지 안 iframe이 GET /Goods/Goods_List.asp를
+         Referer=Goods.asp로 불러옴. 앱은 Goods.asp를 건너뛰고 Goods_List.asp만
+         호출해 상품 행이 없는 목록을 받고 있었음(요청 URL·상품 행 구조는
+         브라우저와 동일함을 확인 — 캡처한 실제 행을 현재 파서가 정상 파싱).
+         브라우저와 같은 2단계 흐름으로 변경, 검색어는 cp949로 인코딩. 서버
+         오류·차단 응답(HTTP 503 등)을 "ID/비밀번호 확인"이나 조용한 0건으로
+         오인하지 않고 HTTP 상태를 그대로 표시.
+         (버그 수정이지만 v2.9 → v3.0 전례대로 소수점 9 다음은 정수 자리로 올림)
   v3.9 — 한미몰 "로그인 실패: DWR 세션 발급 실패" 수정. 사이트에 hmpmall.co.kr
          → www.hmpmall.co.kr 301 리다이렉트가 새로 생겨, aiohttp가 리다이렉트를
          따라가며 DWR POST를 GET으로 바꾸고 본문을 버림 → 서버가 "Failed to find
@@ -221,7 +231,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.9"
+__version__ = "4.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -2065,7 +2075,16 @@ class SmartPharmCrawler(BaseCrawler):
         - 실패: `<script>alert('아이디 또는 비밀번호가 잘못되었습니다.');</script>`
         따라서 `parent.location.replace(` 포함 여부로 판정해야 함.
 
-    검색 (확인됨): GET /Goods/Goods_List.asp
+    검색 (v4.0 DevTools 재캡처로 확인): 2단계
+      1) POST /Goods/Goods.asp (상단 검색창 form TopSearchFrm 제출)
+         필드 순서: TopSearchsCtg1, TopSearch_MakeCmp, TopSearch_CMP_NUM=0002,
+         TopSearchGubun=1, SearchPage=Y, TopSearchKey(EUC-KR). 응답은 iframe을
+         가진 껍데기 페이지라 상품 정보 없음.
+      2) GET /Goods/Goods_List.asp?... (위 페이지 안 iframe, Referer=Goods.asp)
+         — 상품 목록은 여기. ⚠️ v3.9까지는 1)을 건너뛰고 2)만 호출해서
+         로그인 상태여도 상품 행이 없는 목록이 와 조용히 0건이었음
+         (사용자 캡처: '쌍화' 검색 시 브라우저 4건 / 앱 0건, URL·행 구조는 동일).
+    Goods_List.asp 파라미터:
       - TopSearchKey: 검색어. ⚠️ 페이지 characterSet이 EUC-KR이라 반드시
         EUC-KR로 인코딩해야 함 (UTF-8로 보내면 검색 결과가 안 나옴)
       - TopSearchGubun=1 (검색 대상: 상품명)
@@ -2093,6 +2112,7 @@ class SmartPharmCrawler(BaseCrawler):
     BASE       = "https://www.smartpharm.co.kr"
     LOGIN_PAGE_URL = "https://www.smartpharm.co.kr/Login/Login.asp"
     LOGIN_URL  = "https://www.smartpharm.co.kr/Login/Login_Proc.asp"
+    GOODS_URL  = "https://www.smartpharm.co.kr/Goods/Goods.asp"
     SEARCH_URL = "https://www.smartpharm.co.kr/Goods/Goods_List.asp"
 
     async def login(self):
@@ -2123,6 +2143,11 @@ class SmartPharmCrawler(BaseCrawler):
             # ⚠️ EUC-KR 페이지 — encoding 지정 없이 text()를 호출하면 UTF-8로
             # 오판해 UnicodeDecodeError가 남 (search()와 동일한 문제)
             html = await resp.text(encoding="euc-kr", errors="ignore")
+            login_status = resp.status
+
+        # 서버 오류/방화벽 차단 응답을 "ID/비밀번호 확인"으로 오인하지 않도록
+        if login_status != 200:
+            raise LoginError(f"'{self.site_name}' 로그인 요청 실패 (HTTP {login_status})")
 
         # ⚠️ 로그인 폼이 iframe으로 제출되어 이 응답에는 "Logout.asp"/"로그아웃"
         # 같은 페이지 텍스트가 전혀 없음 — 실제 판정 기준은 iframe 안 스크립트가
@@ -2144,13 +2169,34 @@ class SmartPharmCrawler(BaseCrawler):
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
 
-        # ⚠️ EUC-KR 인코딩 필수 — document.characterSet이 EUC-KR이라
+        # ⚠️ EUC-KR(cp949) 인코딩 필수 — document.characterSet이 EUC-KR이라
         # UTF-8로 보내면 검색이 되지 않음
-        query_euckr = quote(query.encode("euc-kr", errors="ignore"))
+        query_enc = quote(query.encode("cp949", errors="ignore"))
+
+        # 브라우저 흐름 그대로(v4.0, DevTools 캡처 확인): 상단 검색창이
+        # POST /Goods/Goods.asp로 제출되고, 그 페이지 안 iframe이
+        # GET /Goods/Goods_List.asp?...를 Referer=Goods.asp로 불러옴.
+        # Goods.asp를 건너뛰고 Goods_List.asp만 부르면 로그인 상태여도 상품
+        # 행이 하나도 없는 목록이 와서 조용히 0건이 됐음.
+        form_body = (
+            "TopSearchsCtg1=&TopSearch_MakeCmp=&TopSearch_CMP_NUM=0002"
+            f"&TopSearchGubun=1&SearchPage=Y&TopSearchKey={query_enc}"
+        )
+        async with self.session.post(self.GOODS_URL, data=form_body, headers={
+            **self._headers,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": f"{self.BASE}/",
+            "Origin": self.BASE,
+        }) as resp:
+            goods_html = await resp.text(encoding="cp949", errors="ignore")
+            if resp.status != 200:
+                raise RuntimeError(f"'{self.site_name}' 검색 요청 실패 (HTTP {resp.status})")
+        if "Login/Login.asp?reURL" in goods_html:
+            raise LoginError(f"'{self.site_name}' 로그인 세션이 유지되지 않아 검색이 로그인 페이지로 이동했습니다")
 
         params = {
             "ctg": "", "cmp": "",
-            "TopSearchKey": query_euckr,
+            "TopSearchKey": query_enc,
             "TopSearchGubun": "1",
             "TopSearch_MakeCmp": "",
             "TopSearch_CMP_NUM": "0002",
@@ -2159,9 +2205,11 @@ class SmartPharmCrawler(BaseCrawler):
         search_url = f"{self.SEARCH_URL}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
 
         async with self.session.get(search_url, headers={
-            **self._headers, "Referer": self.BASE,
+            **self._headers, "Referer": self.GOODS_URL,
         }) as resp:
-            html = await resp.text(encoding="euc-kr", errors="ignore")
+            html = await resp.text(encoding="cp949", errors="ignore")
+            if resp.status != 200:
+                raise RuntimeError(f"'{self.site_name}' 검색 요청 실패 (HTTP {resp.status})")
 
         # 비로그인 세션이면 목록 대신 로그인 페이지로 보내는 스크립트만 옴(v3.8 확인):
         # top.location.replace('/Login/Login.asp?reURL=/Goods/Goods_List.asp?...')
