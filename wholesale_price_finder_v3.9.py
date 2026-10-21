@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.8 — Windows GUI
+도매 최저가 비교 프로그램 v3.9 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.8.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.9.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,12 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.9 — 드시모네 로그인을 브라우저 동작과 완전히 일치시킴: 제출 직전
+         CheckCaptcha 호출 추가(실패 누적으로 캡차가 필요하면 원인을 명확히
+         안내). 사이트 JS 재확인 결과 https에서는 비밀번호를 평문 그대로
+         제출하므로 앱 요청은 브라우저와 동일 — 서버의 "아이디 또는 비밀번호가
+         일치하지 않습니다."는 계정 정보 문제이며, 간편로그인(카카오/네이버 등)
+         가입 계정은 사이트 비밀번호가 없어 ID/PW 로그인이 불가함을 안내.
   v3.8 — 실계정 로그인 테스트(8/12 성공)와 '유산균' 검색 결과로 확인된 오류 수정.
          - 대웅더샵: SSO 토큰 확인 API의 원본 응답 키는 "data"인데(사이트 JS
            헬퍼가 responseData로 감싸서 쓸 뿐) v3.5~3.7은 responseData를 찾아
@@ -209,7 +215,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.8"
+__version__ = "3.9"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -1635,6 +1641,15 @@ class DesimoneCrawler(BaseCrawler):
             필드 자체는 안 보냈음(ch_ref/checkoutToken도 동일한 실수) —
             즉 sIsSnsCheckid="sProvider"처럼 필드명이 값으로 밀려 들어가
             있었고 sProvider/checkoutToken 필드는 누락되어 있었음.
+         d. (v3.9 JS 재확인) MemberAction.login 순서: loginKey 발급 →
+            POST /exec/front/Member/CheckCaptcha/ ({"passed":true,
+            "captcha_layer":false}; true면 캡차 레이어만 띄우고 제출 안 함)
+            → https에서는 AuthSSL.bIsSsl=false라 SSL 암호화 없이 폼을 평문
+            그대로 제출(disabledSslSubmit). 메이크샵 이전회원 검사
+            (js-check_makeshop_login)는 이 몰에 없음. 이 몰은 카카오/네이버/
+            구글/Apple/페이스북/LINE 간편로그인을 지원 — 간편로그인 가입
+            계정은 사이트 비밀번호가 없어 ID/PW 로그인이 "아이디 또는
+            비밀번호가 일치하지 않습니다."로 실패함.
       2. 검색: GET /product/search.html?keyword={query}
          - a.name span → 상품명
          - li[rel="판매가"] span.content span → 가격 (예: "9,900원")
@@ -1645,6 +1660,7 @@ class DesimoneCrawler(BaseCrawler):
     LOGIN_PAGE  = "https://hsaless.cafe24.com/member/login.html"
     LOGIN_KEY_URL = "https://hsaless.cafe24.com/exec/front/Member/loginKey"
     LOGIN_URL   = "https://hsaless.cafe24.com/exec/front/Member/login/"
+    CHECK_CAPTCHA_URL = "https://hsaless.cafe24.com/exec/front/Member/CheckCaptcha/"
     SEARCH_URL  = "https://hsaless.cafe24.com/product/search.html"
 
     async def login(self):
@@ -1694,6 +1710,16 @@ class DesimoneCrawler(BaseCrawler):
             key_data = await resp.json(content_type=None)
         login_key = (key_data or {}).get("sKey", "")
 
+        # 브라우저도 제출 직전에 호출 — 실패 누적 시 captcha_layer=true면 캡차
+        # 레이어를 띄우고 일반 제출을 하지 않음
+        async with self.session.post(self.CHECK_CAPTCHA_URL, headers=ajax_headers) as resp:
+            captcha = await resp.json(content_type=None)
+        if isinstance(captcha, dict) and captcha.get("captcha_layer") is True:
+            raise LoginError(
+                f"'{self.site_name}' 로그인 실패 누적으로 자동입력방지(캡차) 입력이 필요합니다 — "
+                "브라우저에서 한 번 로그인한 뒤 다시 시도하세요"
+            )
+
         # 3) multipart/form-data 로그인 POST
         import aiohttp as _aiohttp
         form = _aiohttp.FormData()
@@ -1730,7 +1756,10 @@ class DesimoneCrawler(BaseCrawler):
         target = location or self.extract_js_redirect(resp_html) or ""
         if "member/login" in target.lower():
             alert_msg = self.extract_alert(resp_html) or "ID/비밀번호를 확인하세요."
-            raise LoginError(f"'{self.site_name}' 로그인 실패: {alert_msg}")
+            raise LoginError(
+                f"'{self.site_name}' 로그인 실패: {alert_msg} "
+                "(카카오/네이버 등 간편로그인으로 가입한 계정은 사이트 비밀번호가 없어 ID/PW 로그인 불가)"
+            )
         self.logged_in = True
 
 
