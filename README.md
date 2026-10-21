@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.7
+## 현재 버전: v3.8
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -137,16 +137,24 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.7.py
+python wholesale_price_finder_v3.8.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.7.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.8.py
 ```
 
 ## 변경 이력
+- v3.8 — 실계정 로그인 테스트(8/12)와 '유산균' 검색에서 확인된 오류 수정.
+  대웅더샵: SSO 토큰 API 원본 응답 키가 `data`인데 `responseData`를 찾아 최종
+  이동 주소를 못 찾던 버그 수정(실계정도 로그인 실패하던 원인), 로그인 판정을
+  the.shop.co.kr 홈이 로그아웃 페이지로 307되는지로 변경. 팜스트리트: 사이트
+  JS가 성공으로 처리하는 `retCd=C`(비밀번호 변경 권유)를 실패로 보던 문제
+  수정("로그인 실패: Success"). 바로팜: API의 null 필드로 검색 전체가
+  `NoneType.strip` 오류 나던 문제 수정. 스마트팜/팜스트리트/대웅더샵: 로그인
+  세션이 없을 때 조용한 0건 대신 오류 표시.
 - v3.7 — 전 사이트 '마스크' 검색 + 더미(틀린) 계정 라이브 테스트로 찾은 로그인
   판정 버그 일괄 수정. 한미몰: DWR CSRF 핸드셰이크(`__System.generateId` →
   `DWRSESSIONID`) 누락으로 맞는 계정도 로그인이 안 되던 문제 수정, 실패 판정을
