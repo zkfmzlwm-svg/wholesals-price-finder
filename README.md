@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v4.1
+## 현재 버전: v4.2
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -137,16 +137,20 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v4.1.py
+python wholesale_price_finder_v4.2.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v4.1.py
+pyinstaller --onefile --windowed wholesale_price_finder_v4.2.py
 ```
 
 ## 변경 이력
+- v4.2 — 쿠키를 브라우저처럼 따옴표 없이 전송(`CookieJar(quote_cookie=False)`).
+  aiohttp 기본 동작은 `=`가 든 쿠키를 `JSESSIONID="...="`로 감싸 보내 팜스트리트
+  서버가 매 요청 새 세션을 발급 → 로그인 직후 세션이 사라져 검색이 '오류'였음.
+  팜스트리트 로그인 실패 시 요청 흐름(쿠키 값 마스킹)을 `debug/`에 저장.
 - v4.1 — 검색 결과를 해석하지 못하면 응답을 `debug/` 폴더에 저장(진단 파일)하고
   경로를 오류 메시지에 표시. 팜스트리트: 로그인 후 `/main` 접근으로 실제 세션 검증,
   retCd=C(비밀번호 변경 권유) 세션 제한 안내, 검색 폼 hidden 필드 그대로 전송.

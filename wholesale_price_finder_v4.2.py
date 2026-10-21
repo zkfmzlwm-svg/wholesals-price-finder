@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v4.1 — Windows GUI
+도매 최저가 비교 프로그램 v4.2 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v4.1.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v4.2.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,14 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v4.2 — 팜스트리트 "로그인 성공인데 검색 오류"의 근본 원인 수정. aiohttp가 '='가
+         들어간 쿠키 값을 JSESSIONID="...="처럼 큰따옴표로 감싸 보내는데, 팜스트리트
+         서버는 이를 다른 세션으로 보고 요청마다 새 세션을 발급 → 로그인 직후
+         다음 요청부터 비로그인 상태가 됐음(사용자 진단 파일: retCd=C 후 비밀번호
+         변경 페이지도 로그인 화면으로 튕김. 실서버에서 따옴표 유무만 바꿔 비교해
+         확인). 쿠키를 브라우저처럼 원본 그대로 보내도록 전 사이트 공통 적용.
+         팜스트리트 로그인 실패 시 요청별 리다이렉트·쿠키 흐름(값 마스킹)을
+         debug/ 에 txt로 저장.
   v4.1 — 진단 파일 저장 기능 추가: 검색 결과를 해석하지 못하면 응답 HTML을
          프로그램 폴더의 debug/ 에 저장하고 오류 메시지에 경로를 표시(로그인
          후에만 보이는 페이지를 분석하기 위함).
@@ -243,7 +251,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "4.1"
+__version__ = "4.2"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -503,6 +511,19 @@ class LoginError(Exception):
 # encodeURIComponent()가 인코딩하지 않는 문자 집합 (영숫자와 -_.~ 는 quote 기본값)
 DWR_SAFE = "!*'()"
 
+def _make_cookie_jar():
+    """브라우저처럼 쿠키 값을 따옴표 없이 보내는 쿠키 저장소 (v4.2).
+    aiohttp 기본값(quote_cookie=True)은 값에 '='가 있으면 JSESSIONID="...="처럼
+    큰따옴표로 감싸 보냄. 팜스트리트 서버는 이를 다른 세션 ID로 보고 요청마다
+    새 세션을 발급해, 로그인 직후 다음 요청부터 비로그인 상태가 됐음(실서버에서
+    따옴표 유무만 바꿔 비교해 확인). 브라우저는 항상 원본 그대로 보내므로 전
+    사이트 공통으로 적용."""
+    try:
+        return aiohttp.CookieJar(unsafe=True, quote_cookie=False)
+    except TypeError:  # aiohttp 3.8 미만
+        return aiohttp.CookieJar(unsafe=True)
+
+
 class BaseCrawler(ABC):
     def __init__(self, site_config: dict):
         self.config = site_config
@@ -523,7 +544,7 @@ class BaseCrawler(ABC):
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
                 headers=self._headers,
-                cookie_jar=aiohttp.CookieJar(unsafe=True),
+                cookie_jar=_make_cookie_jar(),
                 timeout=aiohttp.ClientTimeout(total=30),
             )
 
@@ -606,14 +627,14 @@ class BaseCrawler(ABC):
         m = re.search(r"""location\.(?:replace\(|href\s*=)\s*(["'])(.*?)\1""", html or "")
         return m.group(2) if m else None
 
-    def save_debug(self, stage: str, text: str) -> str:
+    def save_debug(self, stage: str, text: str, ext: str = "html") -> str:
         """사이트 응답을 debug 폴더에 저장하고 경로를 반환 (구조 분석용, v4.0).
         실계정으로만 보이는 페이지(로그인 후 검색 결과 등)를 사용자가 그대로
         전달해 분석할 수 있게 하기 위함. 실패해도 검색 자체엔 영향 없음."""
         try:
             DEBUG_DIR.mkdir(exist_ok=True)
             safe = re.sub(r"[^\w가-힣-]", "_", f"{self.site_name}_{stage}")
-            path = DEBUG_DIR / f"{safe}_{datetime.now():%Y%m%d_%H%M%S}.html"
+            path = DEBUG_DIR / f"{safe}_{datetime.now():%Y%m%d_%H%M%S}.{ext}"
             path.write_text(text or "", encoding="utf-8")
             return str(path)
         except Exception:
@@ -1946,6 +1967,30 @@ class PharmStreetCrawler(BaseCrawler):
     TOP_SORT = ("ORDERBY1/ASC,ORDERBY2/ASC,ORDERBY3/ASC,RANK/DESC,GOOD_NM_WEB/ASC,"
                 "ORDER_CNT/DESC,GOOD_DV_CD/ASC,PACK_CNT/ASC")
 
+    @staticmethod
+    def _mask(v: str) -> str:
+        v = v or ""
+        return f"{v[:4]}…(len={len(v)})" if len(v) > 4 else f"(len={len(v)})"
+
+    def _trace_resp(self, label: str, resp):
+        """요청마다 리다이렉트 경로·Set-Cookie(값 마스킹)·쿠키 상태를 기록(v4.2).
+        retCd=C 로그인 직후 세션이 사라지는 원인을 실계정 흐름으로 확인하기 위함."""
+        if not hasattr(self, "trace"):
+            self.trace = []
+        for r in [*resp.history, resp]:
+            self.trace.append(f"[{label}] {r.method} {r.url} → HTTP {r.status}"
+                              + (f"  Location: {r.headers.get('Location')}" if r.headers.get("Location") else ""))
+            for sc in r.headers.getall("Set-Cookie", []):
+                name, _, rest = sc.partition("=")
+                value, _, attrs = rest.partition(";")
+                self.trace.append(f"    Set-Cookie: {name}={self._mask(value)};{attrs}")
+        jar = ", ".join(f"{c.key}={self._mask(c.value)}@{c['domain'] or '-'}{c['path'] or ''}"
+                        for c in self.session.cookie_jar)
+        self.trace.append(f"    쿠키: {jar or '(없음)'}")
+
+    def _save_trace(self) -> str:
+        return self.save_debug("로그인흐름", "\n".join(getattr(self, "trace", [])), ext="txt")
+
     async def login(self):
         username = self.credentials.get("username", "")
         if not username:
@@ -1959,6 +2004,7 @@ class PharmStreetCrawler(BaseCrawler):
         # 세션 쿠키(JSESSIONID 등) 확보를 위해 메인 페이지를 먼저 방문
         async with self.session.get(f"{self.BASE}/", headers=self._headers) as resp:
             await resp.text()
+            self._trace_resp("첫 페이지", resp)
 
         login_data = {
             "HANYAK_ACC_DT": "2023-02-21",
@@ -1979,7 +2025,10 @@ class PharmStreetCrawler(BaseCrawler):
                 "X-Requested-With": "XMLHttpRequest",
             },
         ) as resp:
+            self._trace_resp("로그인", resp)
             data = await resp.json(content_type=None)
+        self.trace.append("    응답: " + ", ".join(
+            f"{k}={v if k in ('retCd', 'retMsg') else self._mask(str(v))}" for k, v in data.items()))
 
         # 사이트 로그인 JS의 분기 그대로: Y=성공, C=로그인은 됐지만 비밀번호
         # 장기 미변경으로 변경 페이지로 보냄, D=휴면 계정 전환 페이지로 보냄
@@ -1999,15 +2048,17 @@ class PharmStreetCrawler(BaseCrawler):
                 f"{self.BASE}/member/memberPasswdChange/{quote(username)}",
                 headers={**self._headers, "Referer": f"{self.BASE}/"},
             ) as resp:
+                self._trace_resp("비밀번호 변경 페이지", resp)
                 self.pw_change_html = await resp.text()
 
         if not await self.verify_login():
+            path = self._save_trace()
             if ret_cd == "C":
-                path = self.save_debug("비밀번호변경페이지", self.pw_change_html)
+                self.save_debug("비밀번호변경페이지", self.pw_change_html)
                 raise LoginError(
                     f"'{self.site_name}' 비밀번호 변경 권유 계정(retCd=C)이라 세션이 제한됩니다 — "
                     f"사이트에서 비밀번호를 변경(또는 '다음에 변경')한 뒤 다시 시도하세요 (진단 파일: {path})")
-            raise LoginError(f"'{self.site_name}' 로그인 응답은 성공(retCd={ret_cd})이지만 메인 페이지 접근이 거부됩니다")
+            raise LoginError(f"'{self.site_name}' 로그인 응답은 성공(retCd={ret_cd})이지만 메인 페이지 접근이 거부됩니다 (진단 파일: {path})")
         self.logged_in = True
 
     async def verify_login(self) -> bool:
@@ -2016,6 +2067,7 @@ class PharmStreetCrawler(BaseCrawler):
         async with self.session.get(f"{self.BASE}/main", headers={
             **self._headers, "Referer": f"{self.BASE}/",
         }) as resp:
+            self._trace_resp("메인 페이지", resp)
             self.main_html = await resp.text()
             return urlparse(str(resp.url)).path.startswith("/main")
 
