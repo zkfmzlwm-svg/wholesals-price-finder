@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.9
+## 현재 버전: v4.0
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -137,16 +137,20 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.9.py
+python wholesale_price_finder_v4.0.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.9.py
+pyinstaller --onefile --windowed wholesale_price_finder_v4.0.py
 ```
 
 ## 변경 이력
+- v4.0 — 스마트팜 검색이 로그인 상태에서도 항상 0건이던 버그 수정. 브라우저는
+  `POST /Goods/Goods.asp` → (iframe) `GET /Goods/Goods_List.asp`(Referer=Goods.asp)
+  2단계인데 앱은 `Goods_List.asp`만 호출하고 있었음(사용자 DevTools 캡처로 확인).
+  브라우저와 같은 흐름으로 변경하고, 서버 오류 응답은 HTTP 상태로 표시.
 - v3.9 — 한미몰 "DWR 세션 발급 실패" 수정: `hmpmall.co.kr` → `www.hmpmall.co.kr`
   301 리다이렉트가 새로 생겨 DWR POST 본문이 유실되던 문제(서버 응답 "Failed to
   find parameter: batchId")를 www 주소 직접 사용으로 해결, 성공 판정을 사이트
