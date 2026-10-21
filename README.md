@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v4.0
+## 현재 버전: v4.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -137,16 +137,21 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v4.0.py
+python wholesale_price_finder_v4.1.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v4.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v4.1.py
 ```
 
 ## 변경 이력
+- v4.1 — 검색 결과를 해석하지 못하면 응답을 `debug/` 폴더에 저장(진단 파일)하고
+  경로를 오류 메시지에 표시. 팜스트리트: 로그인 후 `/main` 접근으로 실제 세션 검증,
+  retCd=C(비밀번호 변경 권유) 세션 제한 안내, 검색 폼 hidden 필드 그대로 전송.
+  대웅더샵: App Router 재배포로 바뀐 CSS 해시 대응(클래스 접두사 매칭), RSC
+  페이로드 파싱 폴백 추가.
 - v4.0 — 스마트팜 검색이 로그인 상태에서도 항상 0건이던 버그 수정. 브라우저는
   `POST /Goods/Goods.asp` → (iframe) `GET /Goods/Goods_List.asp`(Referer=Goods.asp)
   2단계인데 앱은 `Goods_List.asp`만 호출하고 있었음(사용자 DevTools 캡처로 확인).

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v4.0 — Windows GUI
+도매 최저가 비교 프로그램 v4.1 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v4.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v4.1.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,18 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v4.1 — 진단 파일 저장 기능 추가: 검색 결과를 해석하지 못하면 응답 HTML을
+         프로그램 폴더의 debug/ 에 저장하고 오류 메시지에 경로를 표시(로그인
+         후에만 보이는 페이지를 분석하기 위함).
+         - 팜스트리트: "로그인 성공"인데 검색이 '오류'(빈 응답)로 뜨던 문제.
+           retCd만 보고 성공 처리하던 것을 브라우저처럼 /main 접근(비로그인은
+           302)으로 검증하고, retCd=C(비밀번호 변경 권유)는 변경 페이지를 거친 뒤
+           세션이 제한되면 원인을 안내. 검색 요청을 헤더 검색 폼(#topSearch)의
+           hidden 필드 그대로(top_searchField/top_sort 등) 보내도록 수정.
+         - 대웅더샵: 실제로는 결과가 있는데 0건으로 뜨던 문제. the.shop.co.kr가
+           Next.js App Router로 재배포돼 CSS Modules 해시 클래스가 바뀐 것으로
+           보여 접두사(item_result_box__ 등)로 매칭, App Router RSC 페이로드
+           (self.__next_f) 파싱 폴백 추가, 그래도 0건이면 진단 파일 저장.
   v4.0 — 스마트팜 검색이 로그인 상태에서도 항상 0건이던 버그 수정. 사용자
          DevTools 캡처 결과 브라우저는 상단 검색창으로 POST /Goods/Goods.asp를
          먼저 제출하고, 그 페이지 안 iframe이 GET /Goods/Goods_List.asp를
@@ -231,7 +243,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "4.0"
+__version__ = "4.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -361,6 +373,7 @@ class SearchResult:
 # ═══════════════════════════════════════════════════════════════
 CONFIG_PATH = Path(__file__).parent / "config.json"
 MEMO_PATH = Path(__file__).parent / "memo.dat"
+DEBUG_DIR = Path(__file__).parent / "debug"
 
 # 사이트별 상품명 검색 URL 패턴 (더블클릭/우클릭 검색용)
 SITE_SEARCH_PATTERNS = {
@@ -592,6 +605,19 @@ class BaseCrawler(ABC):
     def extract_js_redirect(html):
         m = re.search(r"""location\.(?:replace\(|href\s*=)\s*(["'])(.*?)\1""", html or "")
         return m.group(2) if m else None
+
+    def save_debug(self, stage: str, text: str) -> str:
+        """사이트 응답을 debug 폴더에 저장하고 경로를 반환 (구조 분석용, v4.0).
+        실계정으로만 보이는 페이지(로그인 후 검색 결과 등)를 사용자가 그대로
+        전달해 분석할 수 있게 하기 위함. 실패해도 검색 자체엔 영향 없음."""
+        try:
+            DEBUG_DIR.mkdir(exist_ok=True)
+            safe = re.sub(r"[^\w가-힣-]", "_", f"{self.site_name}_{stage}")
+            path = DEBUG_DIR / f"{safe}_{datetime.now():%Y%m%d_%H%M%S}.html"
+            path.write_text(text or "", encoding="utf-8")
+            return str(path)
+        except Exception:
+            return "(저장 실패)"
 
     def full_url(self, path):
         if not path: return self.base_url
@@ -1912,6 +1938,13 @@ class PharmStreetCrawler(BaseCrawler):
     BASE       = "https://www.pharm-street.com"
     LOGIN_URL  = "https://www.pharm-street.com/login?site_inflow_path=SIP001"
     SEARCH_URL = "https://www.pharm-street.com/search/searchPage"
+    TOP_SEARCH_FIELD = ("GOOD_ID,GOOD_NM_WEB/100,GOOD_NM_WEB_KMA/100,GOOD_NM_WEB_NON_BLANK/100,"
+                        "GOOD_NM_WEB_CHOSUNG/100,GOOD_NM_ENG,GOOD_NM_ENG_KMA,MAKER_NM_KOR/50,"
+                        "MAKER_NM_KOR_KMA/50,INSURANCE_CD,INSURANCE_CD_MATRIX,EFFECT_TXT,EFFECT_TXT,"
+                        "CONSTRUCT_TXT,CONSTRUCT_TXT_KMA,EFFECT_TXT_KMA,GOOD_STD,SEARCH_WORD,"
+                        "MAKER_NM_ENG,STANDARD_CD,STANDARD_CD_MATRIX")
+    TOP_SORT = ("ORDERBY1/ASC,ORDERBY2/ASC,ORDERBY3/ASC,RANK/DESC,GOOD_NM_WEB/ASC,"
+                "ORDER_CNT/DESC,GOOD_DV_CD/ASC,PACK_CNT/ASC")
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -1952,37 +1985,84 @@ class PharmStreetCrawler(BaseCrawler):
         # 장기 미변경으로 변경 페이지로 보냄, D=휴면 계정 전환 페이지로 보냄
         ret_cd = str(data.get("retCd", ""))
         ret_msg = data.get("retMsg") or "알 수 없는 오류"
-        if ret_cd in ("Y", "C"):
-            self.logged_in = True
-        elif ret_cd == "D":
+        if ret_cd == "D":
             raise LoginError(f"'{self.site_name}' 휴면 계정입니다 — 사이트에서 휴면 해제 후 이용하세요")
-        else:
+        if ret_cd not in ("Y", "C"):
             raise LoginError(f"'{self.site_name}' 로그인 실패: {ret_msg} (retCd={ret_cd})")
+        self.ret_cd = ret_cd
+
+        # 브라우저와 같은 이동 경로를 그대로 밟음: Y → /main, C → 비밀번호 변경
+        # 페이지. v3.9까지는 retCd만 보고 성공 처리해 "로그인 성공"이 떠도
+        # 실제 세션이 쓸 수 있는 상태인지 확인하지 않았음.
+        if ret_cd == "C":
+            async with self.session.get(
+                f"{self.BASE}/member/memberPasswdChange/{quote(username)}",
+                headers={**self._headers, "Referer": f"{self.BASE}/"},
+            ) as resp:
+                self.pw_change_html = await resp.text()
+
+        if not await self.verify_login():
+            if ret_cd == "C":
+                path = self.save_debug("비밀번호변경페이지", self.pw_change_html)
+                raise LoginError(
+                    f"'{self.site_name}' 비밀번호 변경 권유 계정(retCd=C)이라 세션이 제한됩니다 — "
+                    f"사이트에서 비밀번호를 변경(또는 '다음에 변경')한 뒤 다시 시도하세요 (진단 파일: {path})")
+            raise LoginError(f"'{self.site_name}' 로그인 응답은 성공(retCd={ret_cd})이지만 메인 페이지 접근이 거부됩니다")
+        self.logged_in = True
 
     async def verify_login(self) -> bool:
-        return self.logged_in
+        # 비로그인 세션은 /main이 302로 로그인 화면(/)에 보내짐(v4.0 확인)
+        await self._ensure_session()
+        async with self.session.get(f"{self.BASE}/main", headers={
+            **self._headers, "Referer": f"{self.BASE}/",
+        }) as resp:
+            self.main_html = await resp.text()
+            return urlparse(str(resp.url)).path.startswith("/main")
 
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
 
+        # 헤더 검색 폼(#topSearch, GET)의 hidden 필드를 그대로 보냄(v4.0, 로그인
+        # 후 레이아웃이 포함된 404 페이지에서 확인). v3.9는 top_searchField 등을
+        # 빼고 top_sort/top_totalCount를 임의 값으로 보냈음.
         params = {
-            "query":           query,
-            "collection":      "c_goods",
-            "top_collection":  "c_goods",
-            "top_totalCount":  "200",
-            "top_sort":        "ORDERBY1/ASC,RANK/DESC,ORDER_CNT/DESC",
+            "query":                query,
+            "top_collection":       "c_goods",
+            "top_totalCount":       "10",
+            "top_searchField":      self.TOP_SEARCH_FIELD,
+            "top_sort":             self.TOP_SORT,
+            "top_tabId":            "c_goods_1",
+            "collection":           "c_goods",
             "recommendKeywordType": "0",
+            "recommendKeywordURL":  "",
+            "recommendKeyword":     "",
+            "temp_cnt":             "1",
+            "seleted_goods_name":   "",
+            "cursorPos":            "0",
+            "cursorPosRecent":      "0",
+            "searchUserId":         "",
         }
         search_url = f"{self.SEARCH_URL}?{'&'.join(f'{k}={quote(str(v))}' for k, v in params.items())}"
 
         async with self.session.get(search_url, headers={
-            **self._headers, "Referer": self.BASE,
+            **self._headers,
+            "Referer": f"{self.BASE}/main",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }) as resp:
+            status = resp.status
+            landed = str(resp.url)
             html = await resp.text()
 
-        # 비로그인 세션이면 HTTP 200에 빈 본문이 옴(v3.8 확인) — 조용한 0건 대신 오류로
+        # 비로그인 세션이면 HTTP 200에 빈 본문이 옴(v3.8 확인) — 조용한 0건 대신 오류로.
+        # 로그인 직후 /main 접근까지 확인했는데도 비면 세션 외 원인이므로 구분해 안내
         if not html.strip():
-            raise LoginError(f"'{self.site_name}' 검색 응답이 비어 있습니다 — 로그인 세션이 유지되지 않았습니다")
+            main_ok = await self.verify_login()
+            if not main_ok:
+                raise LoginError(f"'{self.site_name}' 검색 시점에 로그인 세션이 끊겼습니다 (retCd={getattr(self, 'ret_cd', '?')})")
+            path = self.save_debug("검색_메인페이지", getattr(self, "main_html", ""))
+            raise LoginError(
+                f"'{self.site_name}' 로그인 상태인데 검색 응답이 비어 있습니다 "
+                f"(HTTP {status}, {landed}, retCd={getattr(self, 'ret_cd', '?')}) — 진단 파일: {path}")
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
@@ -2039,6 +2119,12 @@ class PharmStreetCrawler(BaseCrawler):
                 ))
             except Exception:
                 continue
+
+        # 상품을 하나도 못 뽑았는데 "검색결과 없음" 안내도 없으면 구조 변경으로 보고
+        # 응답을 저장해 둠 (실계정으로만 볼 수 있는 페이지라 분석용으로 필요)
+        if not products and not re.search(r"검색\s*결과가\s*없|결과가\s*없습니다", html):
+            path = self.save_debug("검색결과", html)
+            raise RuntimeError(f"'{self.site_name}' 검색 결과에서 상품 목록을 찾지 못했습니다(사이트 구조 변경 가능) — 진단 파일: {path}")
 
         products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
         return products[:max_results]
@@ -2604,6 +2690,58 @@ class DaewoongTheShopCrawler(BaseCrawler):
             await resp.read()
             return str(resp.url).startswith(self.BASE)
 
+    # RSC(flight) 데이터에서 상품 객체를 찾을 때 쓰는 후보 키 — 실제 키는 미확인
+    _FLIGHT_NAME_KEYS  = ("goodsNm", "goodsName", "productName", "productNm", "prdNm",
+                          "prodNm", "itemNm", "itemName")
+    _FLIGHT_PRICE_KEYS = ("salePrice", "sellPrice", "sellingPrice", "price", "goodsPrice",
+                          "supplyPrice", "unitPrice")
+    _FLIGHT_MAKER_KEYS = ("makerNm", "makerName", "maker", "manufacturer", "mnfcNm",
+                          "companyNm", "vendorNm", "sellerNm")
+
+    def _parse_flight(self, html: str, search_url: str) -> list:
+        """App Router의 self.__next_f.push([1,"..."]) 페이로드에서 상품 객체 추출.
+        v4.0 확인: the.shop.co.kr가 Next.js App Router(main-app 청크)로 재배포됨 —
+        목록이 클라이언트 컴포넌트로 렌더링되면 SSR HTML 대신 이 페이로드에만
+        데이터가 들어 있을 수 있음."""
+        chunks = []
+        for m in re.finditer(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', html):
+            try:
+                chunks.append(json.loads(f'"{m.group(1)}"'))
+            except Exception:
+                continue
+        found, seen = [], set()
+
+        def walk(o):
+            if isinstance(o, dict):
+                name = next((o[k] for k in self._FLIGHT_NAME_KEYS if isinstance(o.get(k), str) and o[k].strip()), None)
+                price = next((o[k] for k in self._FLIGHT_PRICE_KEYS if isinstance(o.get(k), (int, float, str)) and o.get(k) != ""), None)
+                if name and price is not None:
+                    pv = self.extract_price(str(price).split(".")[0])
+                    key = (name.strip(), pv)
+                    if key not in seen:
+                        seen.add(key)
+                        maker = next((o[k] for k in self._FLIGHT_MAKER_KEYS if isinstance(o.get(k), str)), "")
+                        found.append(Product(
+                            name=self.clean_text(name), price=pv, unit_price=None, url=search_url,
+                            site_name=self.site_name, image_url=None, in_stock=pv > 0,
+                            extra_info={"제조사": self.clean_text(maker)} if maker else {},
+                        ))
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+
+        for line in "".join(chunks).split("\n"):
+            _, sep, payload = line.partition(":")
+            if not sep or not payload[:1] in ("[", "{"):
+                continue
+            try:
+                walk(json.loads(payload))
+            except Exception:
+                continue
+        return found
+
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
 
@@ -2611,32 +2749,37 @@ class DaewoongTheShopCrawler(BaseCrawler):
         async with self.session.get(search_url, headers={
             **self._headers, "Referer": self.BASE,
         }) as resp:
+            status = resp.status
             html = await resp.text()
             if not str(resp.url).startswith(self.BASE):
                 raise LoginError(f"'{self.site_name}' 로그인 세션이 없어 로그인 페이지로 이동했습니다")
+        if status == 404 or "This page could not be found" in html:
+            path = self.save_debug("검색_404", html)
+            raise RuntimeError(f"'{self.site_name}' 검색 페이지 주소가 바뀐 것 같습니다 (HTTP {status}) — 진단 파일: {path}")
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
 
-        # 상품 카드: div.item_result_box__Xr14g (확인됨)
-        for item in soup.select("div.item_result_box__Xr14g")[:max_results * 3]:
+        # 상품 카드: div.item_result_box__<해시>. CSS Modules 해시는 재배포마다
+        # 바뀌므로(v4.0: App Router 재배포 확인) 접두사로 매칭
+        for item in soup.select('div[class*="item_result_box__"]')[:max_results * 3]:
             try:
-                title_el = item.select_one(".item_title__AU8UC")
-                name = self.clean_text(title_el.get_text()) if title_el else ""
+                title_el = item.select_one('[class*="item_title__"]')
+                name = self.clean_text(title_el.get_text(" ")) if title_el else ""
                 if not name:
                     continue
 
-                is_soldout = "item_soldout__nJaFL" in item.get("class", [])
+                is_soldout = any(c.startswith("item_soldout__") for c in item.get("class", []))
 
                 price = 0
-                price_el = item.select_one(".item_won__tOdO2")
+                price_el = item.select_one('[class*="item_won__"]')
                 if price_el:
                     price = self.extract_price(price_el.get_text())
 
-                maker_el = item.select_one(".item_info_box__bi2tB .item_name__Bp_mI")
+                maker_el = item.select_one('[class*="item_info_box__"] [class*="item_name__"]')
                 maker = self.clean_text(maker_el.get_text()) if maker_el else ""
 
-                img_el = item.select_one(".item_thumb__XKNBq img")
+                img_el = item.select_one('[class*="item_thumb__"] img')
                 img_url = img_el.get("src", "") if img_el else None
                 if img_url and img_url.startswith("/"):
                     img_url = f"{self.BASE}{img_url}"
@@ -2657,6 +2800,14 @@ class DaewoongTheShopCrawler(BaseCrawler):
                 ))
             except Exception:
                 continue
+
+        if not products:
+            products = self._parse_flight(html, search_url)
+
+        # 그래도 0건이고 "검색 결과 없음" 안내도 없으면 구조 변경으로 보고 응답 저장
+        if not products and not re.search(r"검색\s*결과가\s*없|결과가\s*없습니다|검색된\s*상품이\s*없", html):
+            path = self.save_debug("검색결과", html)
+            raise RuntimeError(f"'{self.site_name}' 검색 결과에서 상품 목록을 찾지 못했습니다(사이트 구조 변경 가능) — 진단 파일: {path}")
 
         products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
         return products[:max_results]
