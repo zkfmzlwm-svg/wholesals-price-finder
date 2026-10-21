@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v3.8
+## 현재 버전: v3.9
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -137,16 +137,20 @@
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v3.8.py
+python wholesale_price_finder_v3.9.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v3.8.py
+pyinstaller --onefile --windowed wholesale_price_finder_v3.9.py
 ```
 
 ## 변경 이력
+- v3.9 — 드시모네 로그인에 브라우저와 같은 `CheckCaptcha` 확인 단계 추가(캡차
+  필요 시 원인 안내). 사이트 JS 재확인 결과 https에서는 비밀번호를 평문 그대로
+  제출하므로 앱 요청은 브라우저와 동일 — 실패는 계정 정보 문제이며, 간편로그인
+  (카카오/네이버 등) 가입 계정은 ID/PW 로그인이 불가함을 오류 메시지로 안내.
 - v3.8 — 실계정 로그인 테스트(8/12)와 '유산균' 검색에서 확인된 오류 수정.
   대웅더샵: SSO 토큰 API 원본 응답 키가 `data`인데 `responseData`를 찾아 최종
   이동 주소를 못 찾던 버그 수정(실계정도 로그인 실패하던 원인), 로그인 판정을
