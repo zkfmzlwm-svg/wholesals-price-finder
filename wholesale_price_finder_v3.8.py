@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v3.7 — Windows GUI
+도매 최저가 비교 프로그램 v3.8 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.7.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v3.8.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,23 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v3.8 — 실계정 로그인 테스트(8/12 성공)와 '유산균' 검색 결과로 확인된 오류 수정.
+         - 대웅더샵: SSO 토큰 확인 API의 원본 응답 키는 "data"인데(사이트 JS
+           헬퍼가 responseData로 감싸서 쓸 뿐) v3.5~3.7은 responseData를 찾아
+           최종 이동 주소를 항상 못 찾음 → 세션 미완성 → 실계정도 "로그인 실패.
+           ID/비밀번호를 확인하세요."로 떴음. data 키로 수정, 서비스 미연결
+           (isServiceMapCompleted=false) 안내 추가, 로그인 판정을 "쿠키 개수"
+           대신 the.shop.co.kr 홈이 로그아웃 페이지로 307되는지로 변경.
+         - 팜스트리트: 사이트 JS는 retCd C(로그인 성공, 비밀번호 변경 권유)도
+           로그인 성공으로 처리하는데 코드는 Y만 성공으로 봐서 "로그인 실패:
+           Success"로 떴음. C를 성공으로, D는 휴면 계정 안내로 처리.
+         - 바로팜: 검색 API가 standard/total_qty 등을 null로 주는 상품이 있어
+           `'NoneType' object has no attribute 'strip'`로 사이트 전체 검색이
+           실패했음. null 안전 처리 + 상품 단위 예외 처리.
+         - 스마트팜/팜스트리트/대웅더샵: 로그인 세션이 없을 때 검색이 조용히
+           0건이 되던 것을 오류로 표시(스마트팜은 로그인 페이지 이동 스크립트,
+           팜스트리트는 빈 본문, 대웅더샵은 로그아웃 페이지 리다이렉트로 판별).
+           스마트팜은 브라우저처럼 로그인 직후 메인 페이지를 한 번 방문.
   v3.7 — 전 사이트 '마스크' 검색 + 더미(틀린) 계정 라이브 테스트로 찾은 로그인
          판정 버그 일괄 수정. 틀린 계정인데도 "성공"으로 넘어가 오류 없이 0건이
          나오거나 엉뚱한 오류 문구가 뜨던 문제들:
@@ -192,7 +209,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "3.7"
+__version__ = "3.8"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -677,52 +694,56 @@ class BaroPharmCrawler(BaseCrawler):
             data = await resp.json(content_type=None)
 
         products = []
-        for group in data.get("products", []):
-            group_name = group.get("name", "")
-            manufacturer = group.get("manufacturer", "")
-            thumbnail = group.get("thumbnail", "")
+        for group in data.get("products") or []:
+            # API가 값이 없는 필드를 키 누락이 아니라 null로 주므로 .get(k, 기본값)이 안 먹힘
+            group_name = group.get("name") or ""
+            manufacturer = group.get("manufacturer") or ""
+            thumbnail = group.get("thumbnail") or ""
 
-            for item in group.get("items", []):
-                # 가격: lowest_price가 실제 판매가 (확인됨)
-                price = item.get("lowest_price") or 0
+            for item in group.get("items") or []:
+                try:
+                    # 가격: lowest_price가 실제 판매가 (확인됨)
+                    price = item.get("lowest_price") or 0
 
-                # 상품명 구성: name + standard + unit_count + dosage_form
-                name = item.get("name") or group_name
-                standard = item.get("standard", "").strip()
-                unit_count = item.get("unit_count")
-                dosage_form = item.get("dosage_form", "")
+                    # 상품명 구성: name + standard + unit_count + dosage_form
+                    name = item.get("name") or group_name
+                    standard = str(item.get("standard") or "").strip()
+                    unit_count = item.get("unit_count")
+                    dosage_form = item.get("dosage_form") or ""
 
-                unit_str = f"{unit_count}{dosage_form}" if unit_count and dosage_form else ""
-                spec = f"{standard} {unit_str}".strip() if standard else unit_str
+                    unit_str = f"{unit_count}{dosage_form}" if unit_count and dosage_form else ""
+                    spec = f"{standard} {unit_str}".strip() if standard else unit_str
 
-                if spec:
-                    name = f"{name} {spec}"
+                    if spec:
+                        name = f"{name} {spec}"
 
-                categories = item.get("categories", [])
-                cat_str = "/".join(categories) if categories else ""
-                wholesalers_count = item.get("wholesalers_count", 0)
-                discount_rate = item.get("discount_rate") or item.get("max_discount_rate") or 0
+                    categories = item.get("categories") or []
+                    cat_str = "/".join(str(c.get("name", "") if isinstance(c, dict) else c) for c in categories)
+                    wholesalers_count = item.get("wholesalers_count", 0)
+                    discount_rate = item.get("discount_rate") or item.get("max_discount_rate") or 0
 
-                extra = {}
-                if manufacturer:
-                    extra["제조사"] = manufacturer
-                if cat_str:
-                    extra["카테고리"] = cat_str
-                if discount_rate:
-                    extra["할인율"] = f"{discount_rate}%"
-                if wholesalers_count:
-                    extra["도매처 수"] = wholesalers_count
+                    extra = {}
+                    if manufacturer:
+                        extra["제조사"] = manufacturer
+                    if cat_str:
+                        extra["카테고리"] = cat_str
+                    if discount_rate:
+                        extra["할인율"] = f"{discount_rate}%"
+                    if wholesalers_count:
+                        extra["도매처 수"] = wholesalers_count
 
-                products.append(Product(
-                    name=name,
-                    price=price,
-                    unit_price=unit_str if unit_str else None,
-                    url=f"{self.WEB_PRODUCT}{quote(query)}",
-                    site_name=self.site_name,
-                    image_url=(item.get("images") or [None])[0] or thumbnail,
-                    in_stock=item.get("total_qty", 0) > 0,
-                    extra_info=extra,
-                ))
+                    products.append(Product(
+                        name=name,
+                        price=price,
+                        unit_price=unit_str if unit_str else None,
+                        url=f"{self.WEB_PRODUCT}{quote(query)}",
+                        site_name=self.site_name,
+                        image_url=(item.get("images") or [None])[0] or thumbnail,
+                        in_stock=(item.get("total_qty") or 0) > 0,
+                        extra_info=extra,
+                    ))
+                except Exception:
+                    continue
 
         products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
         return products[:max_results]
@@ -1811,7 +1832,11 @@ class PharmStreetCrawler(BaseCrawler):
     검색 흐름 (확인됨):
       1. 로그인: POST /login?site_inflow_path=SIP001 (AJAX/XHR, X-Requested-With 필요)
          - 필드: loginId, password, HANYAK_ACC_DT(고정), sid, encId
-         - 응답: JSON {"retCd": "Y"/"N", "retMsg": "..."} (HTML 리다이렉트 아님)
+         - 응답: JSON {"retCd": ..., "retMsg": "..."} (HTML 리다이렉트 아님)
+           사이트 JS 분기(v3.8 확인): Y=성공, C=로그인 성공이지만 비밀번호 변경
+           페이지로 이동(retMsg는 "Success"), D=휴면 계정, 그 외=alert(retMsg).
+           실패 예: {"retCd":"N","retMsg":"아이디와 비밀번호를 확인해주세요."}.
+           v3.7까지는 Y만 성공으로 봐서 C 계정이 "로그인 실패: Success"로 떴음.
       2. 검색: GET /search/searchPage?query={query}&collection=c_goods&top_totalCount=100
          - dl 요소 파싱
          - dt > em           → 상품명 (highlight span 제거)
@@ -1858,10 +1883,16 @@ class PharmStreetCrawler(BaseCrawler):
         ) as resp:
             data = await resp.json(content_type=None)
 
-        if str(data.get("retCd", "")) == "Y":
+        # 사이트 로그인 JS의 분기 그대로: Y=성공, C=로그인은 됐지만 비밀번호
+        # 장기 미변경으로 변경 페이지로 보냄, D=휴면 계정 전환 페이지로 보냄
+        ret_cd = str(data.get("retCd", ""))
+        ret_msg = data.get("retMsg") or "알 수 없는 오류"
+        if ret_cd in ("Y", "C"):
             self.logged_in = True
+        elif ret_cd == "D":
+            raise LoginError(f"'{self.site_name}' 휴면 계정입니다 — 사이트에서 휴면 해제 후 이용하세요")
         else:
-            raise LoginError(f"'{self.site_name}' 로그인 실패: {data.get('retMsg', '알 수 없는 오류')}")
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {ret_msg} (retCd={ret_cd})")
 
     async def verify_login(self) -> bool:
         return self.logged_in
@@ -1883,6 +1914,10 @@ class PharmStreetCrawler(BaseCrawler):
             **self._headers, "Referer": self.BASE,
         }) as resp:
             html = await resp.text()
+
+        # 비로그인 세션이면 HTTP 200에 빈 본문이 옴(v3.8 확인) — 조용한 0건 대신 오류로
+        if not html.strip():
+            raise LoginError(f"'{self.site_name}' 검색 응답이 비어 있습니다 — 로그인 세션이 유지되지 않았습니다")
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
@@ -1984,8 +2019,9 @@ class SmartPharmCrawler(BaseCrawler):
       - ctg / TopSearchsCtg1: 카테고리 코드 (001 전문의약품 … 007 일반상품, 빈값=전체)
       - cmp / TopSearch_MakeCmp: 제조사 코드/명 (자동완성 텍스트박스, 보통 빈값)
       - pdnum: 빈값 (특정 상품코드 직접 조회용으로 추정)
-      - 세션 쿠키 필요 (미로그인 시 리스트가 비거나 로그인 페이지로 리다이렉트될
-        가능성 있음 — 미로그인 상태는 확인 안 됨)
+      - 세션 쿠키 필요. 미로그인 시(v3.8 확인) HTTP 200에 목록 대신
+        `top.location.replace('/Login/Login.asp?reURL=...')` 스크립트만 옴
+        → 이 경우 0건이 아니라 로그인 세션 오류로 처리
 
     상품 목록 결과 (확인됨): 각 상품이 <tr id="GoodsTR"> 행으로 표시되며, 가격까지
     목록에 바로 노출되어 상세 페이지(Goods_View.asp) 조회 없이 파싱 가능.
@@ -2038,10 +2074,14 @@ class SmartPharmCrawler(BaseCrawler):
         # 부모 창을 이동시키는 parent.location.replace(...) 존재 여부
         # (실패 시엔 이게 없고 alert(...)만 있음). 사용자가 실제 계정으로
         # 성공/실패 두 응답 모두 캡처해 확인함.
-        if "parent.location.replace(" in html:
-            self.logged_in = True
-        else:
-            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+        if "parent.location.replace(" not in html:
+            alert_msg = self.extract_alert(html) or "ID/비밀번호를 확인하세요."
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {alert_msg}")
+
+        # 브라우저는 성공 스크립트에 따라 메인('/')으로 이동하므로 동일하게 방문
+        async with self.session.get(f"{self.BASE}/", headers={**self._headers, "Referer": self.LOGIN_PAGE_URL}) as resp:
+            await resp.read()
+        self.logged_in = True
 
     async def verify_login(self) -> bool:
         return self.logged_in
@@ -2067,6 +2107,11 @@ class SmartPharmCrawler(BaseCrawler):
             **self._headers, "Referer": self.BASE,
         }) as resp:
             html = await resp.text(encoding="euc-kr", errors="ignore")
+
+        # 비로그인 세션이면 목록 대신 로그인 페이지로 보내는 스크립트만 옴(v3.8 확인):
+        # top.location.replace('/Login/Login.asp?reURL=/Goods/Goods_List.asp?...')
+        if "Login/Login.asp?reURL" in html:
+            raise LoginError(f"'{self.site_name}' 로그인 세션이 유지되지 않아 검색이 로그인 페이지로 이동했습니다")
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
@@ -2310,15 +2355,21 @@ class DaewoongTheShopCrawler(BaseCrawler):
           GET https://mims-account.shop.co.kr/apis/auth/login/direct?ot=<토큰>
         - 실패(무효 토큰으로 직접 확인됨): HTTP 400,
           {"data":"fail","errorMessage":"...","errorCode":"A206",...}
-        - 성공(JS 소스상 확인): JSON에 errorMessage가 없고
-          `responseData.redirectURLWithStNMk`에 the.shop.co.kr로 보내는 최종
-          리다이렉트 URL이 들어있음 — 브라우저는 이 URL을
-          `location.replace(...)`로 한 번 더 GET하는데, 이 마지막 GET이 실제
-          the.shop.co.kr 세션 쿠키를 Set-Cookie로 심어주는 지점으로 추정됨
-          (일반적인 SSO 교환 코드 패턴과 일치). 아래 login()은 이 API를 직접
-          호출하고 반환된 redirectURLWithStNMk를 GET하도록 구현했으나, 샌드박스
-          네트워크 제약으로 실제 계정 로그인까지는 확인하지 못해 최종 쿠키
-          설정 여부는 테스트 필요.
+        - 성공(JS 소스상 확인): 원본 JSON {"data": {loginInfo,
+          isServiceMapCompleted, redirectURLWithStNMk, ...}, "timestamp": ...}.
+          ⚠️ 사이트 JS의 HTTP 헬퍼(axios 래퍼)가 이를 {responseData: data,
+          timeStamp: timestamp}로 감싸서 쓰기 때문에 JS 코드에는
+          `responseData.redirectURLWithStNMk`로 보이지만, 원본 응답의 키는
+          `data`임. v3.5~3.7은 원본에서 responseData를 찾아 최종 URL을 항상
+          못 찾았고, 그 결과 세션이 완성되지 않아 실계정도 "로그인 실패.
+          ID/비밀번호를 확인하세요."로 떴음(v3.8에서 수정).
+          isServiceMapCompleted가 false면 브라우저도 "서비스를 추가해주세요"
+          알럿만 띄우고 이동하지 않음. 브라우저는 redirectURLWithStNMk로
+          location.replace — 이 주소는 mimsLogin에 넘긴 get_secure_check를
+          거쳐 the.shop.co.kr로 이어짐.
+      - 로그인 상태 판정(v3.8 확인): the.shop.co.kr는 비로그인 요청을 307로
+        https://www.shop.co.kr/login/logout.do 로 보냄 → 홈을 GET해 the.shop.
+        co.kr에 머무르는지로 판정(기존 "쿠키 개수" 판정은 신뢰 불가).
 
     검색 (2026-09 DevTools 캡처로 확인): GET
       https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
@@ -2409,31 +2460,46 @@ class DaewoongTheShopCrawler(BaseCrawler):
         parsed = urlparse(str(sso_url))
         ot_token = (parse_qs(parsed.query).get("ot") or [""])[0]
         if not ot_token:
-            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+            raise LoginError(f"'{self.site_name}' 로그인 실패: SSO 응답에 토큰(ot)이 없습니다 ({sso_url})")
 
         async with self.session.get(
             self.TOKEN_API_URL, params={"ot": ot_token},
-            headers={**self._headers, "Referer": str(sso_url)},
+            headers={**self._headers, "Referer": str(sso_url), "Accept": "application/json"},
         ) as token_resp:
+            token_status = token_resp.status
             token_json = await token_resp.json(content_type=None)
 
-        if not isinstance(token_json, dict) or token_json.get("errorMessage"):
-            msg = token_json.get("errorMessage", "") if isinstance(token_json, dict) else ""
-            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}" if msg else f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+        if not isinstance(token_json, dict):
+            raise LoginError(f"'{self.site_name}' 로그인 실패: SSO 토큰 확인 응답이 올바르지 않습니다 (HTTP {token_status})")
+        if token_json.get("errorMessage"):
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {token_json['errorMessage']}")
 
-        response_data = token_json.get("responseData") or {}
-        final_redirect = response_data.get("redirectURLWithStNMk")
-        if final_redirect:
-            async with self.session.get(final_redirect, headers=self._headers) as final_resp:
-                await final_resp.text()
+        # 사이트 JS의 HTTP 헬퍼는 응답을 {responseData: <원본의 data>}로 감싸서
+        # 쓰기 때문에, 원본 API JSON에서는 "data" 키를 읽어야 함
+        sso_data = token_json.get("data")
+        if not isinstance(sso_data, dict):
+            raise LoginError(f"'{self.site_name}' 로그인 실패: SSO 토큰 확인 응답에 data가 없습니다 (HTTP {token_status})")
+        if sso_data.get("isServiceMapCompleted") is False:
+            raise LoginError(f"'{self.site_name}' 계정에 더샵 서비스가 연결되어 있지 않습니다 — 사이트에서 서비스 추가 필요")
+        final_redirect = sso_data.get("redirectURLWithStNMk")
+        if not final_redirect:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: SSO 최종 이동 주소(redirectURLWithStNMk)가 없습니다")
+
+        async with self.session.get(final_redirect, headers=self._headers) as final_resp:
+            await final_resp.read()
+            landed = str(final_resp.url)
 
         if not await self.verify_login():
-            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+            raise LoginError(f"'{self.site_name}' 로그인 실패: SSO 완료 후에도 더샵 세션이 생성되지 않았습니다 (최종 위치: {landed})")
         self.logged_in = True
 
     async def verify_login(self) -> bool:
+        # the.shop.co.kr는 비로그인 요청을 307로 www.shop.co.kr/login/logout.do에
+        # 보냄(v3.8 확인) — 홈에 그대로 머무르면 로그인 상태
         await self._ensure_session()
-        return len(self.session.cookie_jar.filter_cookies(YarlURL(self.BASE))) > 0
+        async with self.session.get(f"{self.BASE}/", headers=self._headers) as resp:
+            await resp.read()
+            return str(resp.url).startswith(self.BASE)
 
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
@@ -2443,6 +2509,8 @@ class DaewoongTheShopCrawler(BaseCrawler):
             **self._headers, "Referer": self.BASE,
         }) as resp:
             html = await resp.text()
+            if not str(resp.url).startswith(self.BASE):
+                raise LoginError(f"'{self.site_name}' 로그인 세션이 없어 로그인 페이지로 이동했습니다")
 
         soup = BeautifulSoup(html, "html.parser")
         products = []
