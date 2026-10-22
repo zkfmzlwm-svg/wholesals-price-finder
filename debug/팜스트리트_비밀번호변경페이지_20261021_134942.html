@@ -1,0 +1,1215 @@
+
+
+<!-- 공통스크립트 -->
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+	<meta http-equiv="Cache-control" content="no-cache">
+	<meta http-equiv="pragma" content="no-cache" />
+	<meta http-equiv="expires" content="0">
+	<title>팜스트리트</title>
+	<link rel="shortcut icon" type="image/x-icon" href="/common/favicon.ico" />
+
+	<script type="text/javascript" src="/common/js/lib/jquery-1.8.3.min.js"></script>
+	<script type="text/javascript" src="/common/js/lib/jquery.validate.min.js"></script>
+	<script type="text/javascript" src="/common/js/lib/common-jquery-util.js"></script>
+
+	<script type="text/javascript" src="/common/js/lib/beforeLogin.js"></script>
+	<script type="text/javascript" src="/common/js/lib/jquery.ezmark.min.js"></script>
+
+
+	<!--
+	<script type="text/javascript" src="/common/js/lib/jquery-ui.js"></script>
+	<script type="text/javascript" src="/common/js/lib/jquery.jscrollpane.js"></script>
+	<script type="text/javascript" src="/common/js/lib/jquery.mousewheel.js"></script>
+	-->
+
+<!-- 개발자용 S-->
+	<!--
+	<script type="text/javascript" src="/common/js/lib/jquery.tmpl.min.js"></script>
+	<script type="text/javascript" src="/common/js/lib/jquery.form.js"></script>
+	<script type="text/javascript" src="/common/js/lib/jquery.number.min.js"></script>
+	<script type="text/javascript" src="/common/js/lib/additional-methods.min.js"></script>
+	<script type="text/javascript" src="/common/js/lib/common-jquery-validation.js"></script>
+	<script type="text/javascript" src="/common/js/lib/wow-alert.js"></script>
+	<script type="text/javascript" src="/common/js/lib/paging.js"></script>
+	-->
+<!-- 개발자용 E-->
+
+
+
+
+
+
+<meta name="naver-site-verification" content="7ac5aafed55942ad2c9e4a17c8b2949d32d13779"/>
+<link rel="stylesheet" type="text/css" href="/common/css/beforeLogin.css" />
+
+<meta name ="robots" content="index, nofollow"/>
+<meta name="description" content="팜가, 보령제약, 의약품 쇼핑몰, 전문의약품, 일반의약품"/>
+
+<meta property="og:type" content="website"/>
+<meta property="og:title" content="팜스트리트"/>
+<meta property="og:description" content="팜가, 보령제약, 의약품 쇼핑몰, 전문의약품, 일반의약품"/>
+<meta property="og:image" content="http://image.pharm-street.com/Logo/Ps.png"/>
+<meta property="og:url" content="http://www.pharm-street.com/"/>
+
+<meta name="twitter:card" content="약국 경제의 중심 팜스트리트"/>
+<meta name="twitter:title" content="팜스트리트"/>
+<meta name="twitter:description" content="팜가, 보령제약, 의약품 쇼핑몰, 전문의약품, 일반의약품"/>
+<meta name="twitter:image" content="http://image.pharm-street.com/Logo/Ps.png"/>
+<meta name="twitter:domain" content="http://www.pharm-street.com"/>
+</head>
+<body>
+<div id="wrap">
+ 
+	<!-- header -->
+	<div id="header" class="easy">
+		<!-- 20220801 list_foot 2022.07.12 지음랩(황여준) -->
+		<div class="header_wrap" style="background:none; background-color:#f7f7f7; box-shadow: 0 10px 10px -10px rgba(234, 85, 86, 0.1), 0 10px 10px -10px rgba(0, 0, 0, 0.1);">
+		<!-- //20220801 list_foot  -->
+			<div class="util_section">
+				<div class="util_article">
+					<ul class="list_util">
+						<li><a href="#" class="bookmark" id="favorite" title="즐겨찾기 등록">즐겨찾기 추가</a></li>
+						<!-- <li><a href="http://image.pharm-street.com/cscenter/Pharm-Street.url" class="downbook" id="downbook" title="바로가기 저장">바로가기 저장</a></li> -->
+						<!--<li><a href="#" class="downbook" id="downbook" title="바로가기 저장">바로가기 저장</a></li>-->
+						<!-- <li><a href="#">앱다운로드</a></li> -->
+						
+					</ul>
+				</div>
+			</div>
+
+			<div class="top_section">
+				<h1 title="home"><a href="/">Pharm ST. 팜스트리트</a></h1>
+				<!-- 20220801 section_tit -->
+				<span class="section_tit"><img src="/common/images/member/tit_membership.png" alt="Membership - 약국경제의 중심 팜스트리트에 오신걸 환영합니다. " /> </span>
+				<!-- //20220801 section_tit -->
+			</div>
+
+		</div>
+	</div>
+	<!-- //header -->
+ <script>
+;
+;
+var fileDomain = '//image.pharm-street.com';
+var kimsonlineDomain = 'http://api.kims.co.kr';
+</script><script type="text/javascript" src="/common/js/lib/jquery.cookie.js"></script>
+
+<script type="text/javascript" src="/common/js/lib/wow-alert.js"></script>
+<link rel="stylesheet" type="text/css" href="/common/css/wow-alert.css" />
+
+    <!-- container -->
+    <div id="container">
+        <!-- contents -->
+        <div id="contents" class="contents">
+            <div class="tit_section easy">
+                <div class="lside">
+                    <h2 class="tit_major">LOGIN</h2>
+                </div>
+            </div>
+
+            <div class="login clearfix">
+
+                <!-- Login -->
+                <div class="login_form">
+                    <form id="loginForm" name="loginForm" action="">
+                        <input type="hidden" id="HANYAK_ACC_DT" name="HANYAK_ACC_DT" value="2023-02-21">
+                        <input type="hidden" id="site_inflow_path" value="SIP001"/>
+                        <input type="hidden" name="sid" id="sid" value=""/>
+                        <input type="hidden" name="encId" id="encId" value=""/>
+                        <fieldset>
+                            <legend>로그인</legend>
+                            <ul>
+                                <li>
+                                    <!-- input_text -->
+                                    <span class="inputbox_section">
+                                        <span class="input_name">
+                                            <label for="loginId" id="idLabel">아이디</label><!-- input 요소 id 값 label for 값에 동일하게 적용 -->
+                                            <input type="text" value="" id="loginId" maxlength="20" name="loginId" title="아이디 입력" class="inputName" autocomplete="new-password" />
+                                        </span>
+                                    </span>
+                                    <!-- //input_text -->
+                                </li>
+                                <li>
+                                    <!-- input_text -->
+                                    <span class="inputbox_section">
+                                        <span class="input_name" >
+                                            <label for="password" id="passLabel">패스워드</label><!-- input 요소 id 값 label for 값에 동일하게 적용 -->
+                                            <input type="password" value="" id="password" maxlength="20" name="password" title="비밀번호 입력" class="inputName" autocomplete="new-password" />
+                                        </span>
+                                    </span>
+                                    <!-- //input_text -->
+                                </li>
+                            </ul>
+                            <button type="button" id="loginBtn" name="loginBtn" class="btn_login">로그인</button>
+                            <!-- 아이디 쿠키값 있을 경우 : 아이디입력 인풋 lable에 style="display:none" 적용 -->
+                            <p class="save"  style='padding: 12px 0; border-bottom:1px solid #65C6A9;'>
+                                <label class="check_align">
+                                    <input type="checkbox" id="saveId" name="saveId" />아이디저장
+                                </label>
+                                <!--
+                                <label class="checkbox" id="autoChecklabel">
+                                    <input type="checkbox" id="autoCheck" name="autoCheck" /> 자동 로그인
+                                </label>
+                                 -->
+                            </p>
+
+                            <ul class="find_area" style='margin:10px 0; border-bottom:1px solid #65C6A9; padding-bottom: 2px;'>
+                                <li>네이버 아이디로 편리하게 로그인 하세요</li>
+                                <li><img id="naver_loginBtn" src="/common/images/common/btn/btn_login_naver_id_web.png" alt="네이버ID로 로그인 "></li>
+                                <li style="color:#1EC800;font-: normal;">공용PC를 사용할 경우 개인정보 보호를 위해 사용하지 않는 것을 권장드립니다.</li>
+                            </ul>
+                            <ul class="list_square_grey" style='margin:20px 0 2px 0; border-bottom:1px solid #dfdfdf;'>
+                                <li>로그인 이후에 쇼핑몰을 이용하실 수 있습니다.</li>
+                                <li style='margin-bottom:20px'>신규가입한 회원은 내부 승인처리가 완료된 이후부터 로그인이 가능 합니다.<br>(가입승인시간 월~금: 오전10시/오후5시, 승인완료시 문자발송)</li>
+                            </ul>
+
+                            <ul class="find_area" style='padding-bottom: 6px;'>
+                                <li>아이디/비밀번호를 잊어버리셨나요?</li>
+                                <li><a href="#" class="btn_gray btn_findID" style='width: 108px;'>아이디찾기</a>&nbsp;&nbsp;
+                                <a href="#" class="btn_gray btn_findPW" style='width: 108px; padding-left: 12px;'>비밀번호찾기</a>
+                                </li>
+                            </ul>
+                        </fieldset>
+                    </form>
+                </div>
+                <!-- //Login -->
+
+                <!-- 아이디찾기 레이어팝업 -->
+                <div class="layer_wrap layer_fix type3 layer_findID" style="display:none;"><!-- type3 : size 617 -->
+                    <div class="layerbox">
+                        <div class="wrap">
+                            <div class="header">
+                                <h1>아이디찾기</h1>
+                            </div>
+                            <div class="contents">
+                                <div>
+                                    <p class="mb20">아이디를 잊으셨나요?<br />아래의 개인정보를 입력하시면 아이디 확인이 가능합니다.</p>
+                                    <div class="board_view my_list">
+                                        <form action="" id="idSearchForm" name="idSearchForm">
+                                        <input type="hidden" id="contact_no_i" name="contact_no_i" value=""/>
+                                            <fieldset>
+                                                <legend>아이디찾기</legend>
+                                                <table summary="아이디찾기">
+                                                    <caption>아이디찾기</caption>
+                                                    <colgroup>
+                                                        <col width="150" />
+                                                        <col width="" />
+                                                    </colgroup>
+                                                    <tbody>
+                                                        <tr>
+                                                            <th scope="row"><label for="usr_name">이름</label></th>
+                                                            <td>
+                                                                <input type="text" id="user_nm" name="user_nm" class="inpt_txt" style="width:152px; height:16px;" />
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <th scope="row">  <!--  redmine. 2851  비밀번호 찾기 개선   -->
+                                                               <select style="width:110px;  padding-left:3px; font-weight:bold;" id="call_tp_i" name="call_tp_i">
+                                                                   <option value="C">핸드폰 번호</option>
+                                                                   <option value="T">약국 전화번호</option>
+                                                                   <option value="E">이메일</option>
+                                                               </select>
+                                                            </th>
+                                                            
+                                                            <td id='call_tp_cell_i'>
+                                                                <!-- selectbox : select_base(); -->
+                                                                <span class="select_base find_id">
+                                                                    <select style="width:77px;" id="usr_cell_top_i" name="usr_cell_top_i" title="휴대폰번호 앞자리 선택" style="width:68px;">
+                                                                        <option value="010">010</option>
+                                                                        <option value="011">011</option>
+                                                                        <option value="016">016</option>
+                                                                        <option value="017">017</option>
+                                                                        <option value="019">019</option>
+                                                                    </select>
+                                                                </span>
+                                                                <!-- //selectbox -->
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_cell_center_i" id="usr_cell_center_i" class="inpt_txt onlyNum" maxlength="4" title="휴대폰번호 가운뎃자리 입력" style="width:48px; height:16px;" />
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_cell_after_i" id="usr_cell_after_i" class="inpt_txt onlyNum"  maxlength="4" title="휴대폰번호 뒷자리 입력" style="width:48px; height:16px;" />
+                                                           </td>
+                                                           <!-- selectbox : select_base();  redmine. 2851  비밀번호 찾기 개선 -->
+                                                            <td id='call_tp_tel_i'>
+                                                                <input type="text" name="usr_tel_top_i" id="usr_tel_top_i" class="inpt_txt onlyNum" maxlength="4" title="약국 지역번호 입력" style="width:48px; height:16px;" />
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_tel_center_i" id="usr_tel_center_i" class="inpt_txt onlyNum" maxlength="4" title="약국 전화번호 가운뎃자리 입력" style="width:48px; height:16px;" />
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_tel_after_i" id="usr_tel_after_i" class="inpt_txt onlyNum"  maxlength="4" title="약국 전화번호 뒷자리 입력" style="width:48px; height:16px;" />
+                                                            </td>
+                                                           <td id='call_tp_email_i'><!--
+                                                                <input type="text" name="usr_email_top_i" id="usr_email_top_i" class="inpt_txt" maxlength="4" title="이메일 주소" style="width:48px; height:16px;" readonly />
+                                                                <span class="dash">&nbsp;</span> -->
+                                                                <input type="text" name="usr_email_center_i" id="usr_email_center_i" class="inpt_txt" maxlength="20" title="E-mail 앞자리 입력" style="width:60px; height:16px;" />
+                                                                <!-- <span class="dash">@</span> -->
+                                                                <span style="display:inline-block; margin:0 3px; line-height:29px;">@</span>
+                                                                <input type="text" name="usr_email_after_i" id="usr_email_after_i" class="inpt_txt"  maxlength="30" title="E-mail 뒷자리 입력" style="width:100px; height:16px;" />
+                                                                <span class="select_base" id="email_txt_hidden_i" style="margin-top:2px;">
+																	<select style="width:120px;top-padding:5px;" title="이메일을 선택해주세요." id="email_txt_txt_i">
+																		<option value="">직접입력</option>
+																		<option value="naver.com">naver.com</option>
+																		<option value="daum.net">daum.net</option>
+																		<option value="hotmail.com">hotmail.com</option>
+																		<option value="nate.com">nate.com</option>
+																		<option value="yahoo.co.kr">yahoo.co.kr</option>
+																		<option value="paran.com">paran.com</option>
+																		<option value="empas.com">empas.com</option>
+																		<option value="dreamwiz.com">dreamwiz.com</option>
+																		<option value="freechal.com">freechal.com</option>
+																		<option value="lycos.co.kr">lycos.co.kr</option>
+																		<option value="korea.com">korea.com</option>
+																		<option value="gmail.com">gmail.com</option>
+																		<option value="hanmir.com">hanmir.com</option>
+																	</select>
+																</span>
+																<span id="emailvalidate_i"></span>
+                                                           </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </fieldset>
+                                        </form>
+                                        <div class="board_bott type01 mb20">
+                                            <a href="javascript:jsIdSearch();" class="btn_gray">조회</a>
+                                        </div>
+                                        <div class="info_border_box" id="idAjaxResult" style="display: none;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn_com btn_close" title="닫기"><span>닫기</span></button>
+                        </div>
+                    </div>
+                </div>
+                <!-- //아이디찾기 레이어팝업 -->
+
+                <!-- 비밀번호찾기 레이어팝업 -->
+                <div class="layer_wrap layer_fix type3 layer_findPW" style="display:none;"><!-- type3 : size 617 -->
+                    <div class="layerbox">
+                        <div class="wrap">
+                            <div class="header">
+                                <h1>비밀번호찾기</h1>
+                            </div>
+                            <div class="contents">
+                                <div>
+                                    <p class="mb20">비밀번호를 잊으셨나요?<br />아래에 고객님의 아이디/이름/연락처를 입력 후 메일 혹은 SMS문자로 비밀번호 확인이 가능합니다.</p>
+                                    <div class="board_view my_list">
+                                        <form action="" id="pwSearchForm" name="pwSearchForm">
+                                        <input type="hidden" id="contact_no_p" name="contact_no_p" value=""/>
+                                        <input type="hidden" id="sendType" name="sendType" value=""/>
+                                            <fieldset>
+                                                <legend>비밀번호찾기</legend>
+                                                <table summary="비밀번호찾기">
+                                                    <caption>비밀번호찾기</caption>
+                                                    <colgroup>
+                                                        <col width="150" />
+                                                        <col width="" />
+                                                    </colgroup>
+                                                    <tbody>
+                                                        <tr>
+                                                            <th scope="row"><label for="usr_id">아이디</label></th>
+                                                            <td>
+                                                                <input type="text" id="login_id" name="login_id" class="inpt_txt" style="width:152px; height:16px;" />
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <th scope="row"><label for="usr_name2">이름</label></th>
+                                                            <td>
+                                                                <input type="text" id="user_nm_p" name="user_nm_p" class="inpt_txt" style="width:152px; height:16px;" />
+                                                            </td>
+                                                        </tr>
+                                                        <tr>
+                                                            <th scope="row">  <!--  redmine. 2851  비밀번호 찾기 개선   -->
+                                                               <select style="width:110px;  padding-left:3px; font-weight:bold;" id="call_tp_p" name="call_tp_p">
+                                                                   <option value="C">핸드폰 번호</option>
+                                                                   <option value="T">약국 전화번호</option>
+                                                                   <option value="E">이메일</option>
+                                                               </select>
+                                                            </th>
+                                                            <!-- selectbox : select_base();  redmine. 2851  비밀번호 찾기 개선 -->
+                                                            <td id='call_tp_cell_p'>
+                                                                <span class="select_base find_id">
+                                                                    <select style="width:77px;" id="usr_cell_top_p" name="usr_cell_top_p" title="휴대폰번호 앞자리 선택">
+                                                                        <option value="010">010</option>
+                                                                        <option value="011">011</option>
+                                                                        <option value="016">016</option>
+                                                                        <option value="017">017</option>
+                                                                        <option value="019">019</option>
+                                                                    </select>
+                                                                </span>
+                                                                <!-- //selectbox -->
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_cell_center_p" id="usr_cell_center_p"class="inpt_txt onlyNum" maxlength="4" title="휴대폰번호 가운뎃자리 입력" style="width:48px; height:16px;" />
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_cell_after_p" id="usr_cell_after_p"class="inpt_txt onlyNum"  maxlength="4" title="휴대폰번호 뒷자리 입력" style="width:48px; height:16px;" />
+                                                            </td>
+                                                            <td id='call_tp_tel_p'>
+                                                                <input type="text" name="usr_tel_top_p" id="usr_tel_top_p" class="inpt_txt onlyNum" maxlength="4" title="약국 지역번호 입력" style="width:48px; height:16px;" />
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_tel_center_p" id="usr_tel_center_p" class="inpt_txt onlyNum" maxlength="4" title="약국 전화번호 가운뎃자리 입력" style="width:48px; height:16px;" />
+                                                                <span class="dash">-</span>
+                                                                <input type="text" name="usr_tel_after_p" id="usr_tel_after_p" class="inpt_txt onlyNum"  maxlength="4" title="약국 전화번호 뒷자리 입력" style="width:48px; height:16px;" />
+                                                            </td>
+                                                            <td id='call_tp_email_p'><!--
+                                                                <input type="text" name="usr_email_top_p" id="usr_email_top_p" class="inpt_txt" maxlength="4" title="이메일 입력" style="width:48px; height:16px;" />
+                                                                <span class="dash">&nbsp;</span>-->
+                                                                <input type="text" name="usr_email_center_p" id="usr_email_center_p" class="inpt_txt" maxlength="20" title="이메일 앞자리 입력" style="width:60px; height:16px;" />
+                                                                <!--<span class="dash">@</span>-->
+                                                                <span style="display:inline-block; margin:0 3px; line-height:29px;">@</span>
+                                                                <input type="text" name="usr_email_after_p" id="usr_email_after_p" class="inpt_txt"  maxlength="30" title="이메일 뒷자리 입력" style="width:100px; height:16px;" />
+                                                                <span class="select_base" id="email_txt_hidden_p" style="margin-top:2px;">
+																	<select style="width:120px;top-padding:5px;" title="이메일을 선택해주세요." id="email_txt_txt_p">
+																		<option value="">직접입력</option>
+																		<option value="naver.com">naver.com</option>
+																		<option value="daum.net">daum.net</option>
+																		<option value="hotmail.com">hotmail.com</option>
+																		<option value="nate.com">nate.com</option>
+																		<option value="yahoo.co.kr">yahoo.co.kr</option>
+																		<option value="paran.com">paran.com</option>
+																		<option value="empas.com">empas.com</option>
+																		<option value="dreamwiz.com">dreamwiz.com</option>
+																		<option value="freechal.com">freechal.com</option>
+																		<option value="lycos.co.kr">lycos.co.kr</option>
+																		<option value="korea.com">korea.com</option>
+																		<option value="gmail.com">gmail.com</option>
+																		<option value="hanmir.com">hanmir.com</option>
+																	</select>
+																</span>
+																<span id="emailvalidate_p"></span>
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </fieldset>
+                                        </form>
+                                        <ul class="receive_pw mt20">
+                                            <li>
+                                                <label class="check_align">
+                                                    <input type="radio" name="pw_type_search" value="emailType" checked="checked" />임시 비밀번호 메일로 받기
+                                                </label>
+                                            </li>
+                                            <li>
+                                                <label class="check_align">
+                                                    <input type="radio" name="pw_type_search" value="smsType"/>임시 비밀번호 SMS문자로 받기
+                                                </label>
+                                            </li>
+                                        </ul>
+                                        <script type="text/javascript" src="/common/js/lib/jquery.ezmark.min.js"></script>
+
+                                        <div class="board_bott type01">
+                                            <a href="javascript:jsPasswordSearch();" class="btn_gray">확인</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn_com btn_close" title="닫기"><span>닫기</span></button>
+                        </div>
+                    </div>
+                </div>
+                <!-- //비밀번호찾기 레이어팝업 -->
+
+                <!-- 회원가입 공지 팝업 -->
+                <div class="layer_wrap layer_fix type3 layer_joinMemberNotice" style="display:none;"><!-- type3 : size 617 -->
+                    <div class="layerbox">
+                        <div class="wrap">
+                            <div class="header">
+                                <h1>회원가입 긴급공지</h1>
+                            </div>
+                            <div class="contents">
+                                <div>
+                                    <p class="mb20"><h1>
+                                        ERP시스템 정기점검으로 인해 다음 시간동안 팜스트리트 회원가입이 불가함을 안내드립니다.<br />
+                                        <br /><br />
+                                        일시 : 2021년 2월 9일(화) 18:30 ~ 2월 10일(수) 08:00<br />
+                                        <br /><br />
+                                        이용에 불편을 드려서 죄송합니다.<br /><br /><br /></h1>
+                                    </p>
+                                </div>
+                            </div>
+                            <button type="button" class="btn_com btn_close" title="닫기"><span>닫기</span></button>
+                        </div>
+                    </div>
+                </div>
+                <!-- //회원가입 공지 팝업 -->
+
+                <!-- 로그인세션만료 레이어팝업 : 세션 만료 시 style="display:block" -->
+                <div class="layer_wrap type3 layer_timeout" style="display:none;"><!-- type3 : size 617 -->
+                    <div class="layerbox">
+                        <div class="wrap">
+                            <div class="header">
+                                <h1 class="hide">로그인 세션 만료</h1>
+                            </div>
+                            <div class="contents">
+                                <div>
+                                    <div class="info_border_box">
+                                        <p>고객님 로그인 허용시간이 지났습니다. 다시 로그인 해주세요.</p>
+                                    </div>
+                                    <div class="board_bott">
+                                        <a href="#" class="btn_gray btn_cancel">확인</a>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn_com btn_close" title="닫기"><span>닫기</span></button>
+                        </div>
+                    </div>
+                </div>
+                <!-- //로그인세션만료 레이어팝업 -->
+
+                <!-- 2017-04-11 join_gift_list 클래스 추가 2018-02-27 변경-->
+                <div class="join_form join_gift_list" style='height:368px; '>
+                    <div class="tit_sub">
+                        <!-- 20180227 -->
+                        <!-- 20220801 tit_sub -->
+                        <img src="/common/images/member/login_img2.png" alt="5WHY 프리미엄 마스크, 더블브이 비타민D&amp;아연, 레디아나 갱년기키트, 알기쉬운 약물 부작용 매커니즘">
+                        <!-- //20220801 tit_sub -->
+                    </div>
+                    <div class="btn_area" id="joinMemberNoticeID" style="display:block;"><a href="/member/registration/memberRegistrationPersonal" class="btn_orange60">회원가입</a></div> <!--  <span>팜스트리트 고객센터 : 080-708-8255</span>  -->
+                    <div class="btn_area" id="joinMemberNoticeID_N" style="display:none;"><a href="#" class="btn_orange60" id="btn_joinMemberNotice">회원가입</a></div><!--  <span>팜스트리트 고객센터 : 080-708-8255</span>  -->
+
+
+                    <div class="btn_area" style='margin-top:10px; '><a href="/member/frontMainPreview" class="btn_gray" style='font-size:25px; height:42px;width:367px;line-height: 40px; margin-bottom: 6px;'>팜스트리트 미리보기</a></div>
+                    <span style='font-size: 14px;'>팜스트리트 고객센터 : 080-708-8255</span>
+
+                </div>
+                <!--// 2017-04-11 join_gift_list 클래스 추가 2018-02-27 변경-->
+
+            </div>
+
+        </div>
+        <!-- //contents -->
+    </div>
+
+    <script type="text/javascript">
+    var ssnLoginPopUp;
+
+    $(function() {
+        var loginId = $.cookie("saveId");
+        var mykeyword = $.cookie("mykeyword");
+        var autoCheck = $.cookie("autoCheck");
+        var sid = $.cookie("sid");
+        var encId = $.cookie("encId");
+        var autoLogoutCheck = $.cookie("autoLogoutCheck");
+        if (loginId != undefined) {
+            $('#saveId').prop('checked', true).change();
+            $("#idLabel").attr("style", "display:none");
+            $("#loginId").val(loginId);
+        }else{
+            if(mykeyword != undefined){
+                $("#idLabel").attr("style", "display:none");
+                $("#passLabel").attr("style", "display:none");
+            }else{
+                $('#saveId').prop('checked', false).change();
+            }
+        }
+
+        if (autoLogoutCheck == "Y") {
+            //alert("autoLogoutCheck  : " + autoLogoutCheck);
+            autoCheck = "N";
+            $('#autoCheck').prop('checked', false).change();
+            //$.removeCookie("autoCheck");
+            $.removeCookie("autoCheck");
+            $.removeCookie("sid");
+            $.removeCookie("encId");
+        }
+
+        if (autoCheck == "Y") {
+            $('#autoCheck').prop('checked', true).change();
+
+            $('#sid').val(sid);
+            if (sid != undefined) {
+
+                $('#encId').val(encId);
+                //var params = new Object();
+                //params.sessionId = sessionId;
+                //params.encloginId = encloginId;
+                //자동 로그인 처리
+
+                     $.ajax({
+                            url: "/login/autoLogin",
+                            data: $("#loginForm").serializeObject(),
+                            success: function(data, textStatus, xhr){
+
+                                if (data.retCd == "Y") {
+                                    //site_inflow_path가 유효한지 판단
+                                    if("SIP001" == "SIP002"){
+                                            top.location.href = "/planning/planningDetail/PL2017100064";
+                                    }else{
+                                        top.location.href = "/main";
+                                    }
+                                } else if(data.retCd == "C"){
+                                    top.location.href = "/member/memberPasswdChange/"+$("#loginId").val();
+                                } else if(data.retCd == "D"){
+                                    top.location.href = "/member/memberDormantChange/"+$("#loginId").val();
+                                } else {
+                                    alert(data.retMsg); return;
+                                }
+                            },
+                            error:function (XMLHttpRequest, textStatus, errorThrown) {
+                                alert("code:"+XMLHttpRequest.status+"\n"+"message:"+XMLHttpRequest.responseText+"\n"+"error:"+errorThrown);
+                            }
+                        });
+            }
+        }else{
+            $('#autoCheck').prop('checked', false).change();
+        }
+
+/*
+        // 회원가입 긴급 공지사항 여부.
+         var withinDateData = { "INCODE": "WDC001" };
+          $.ajax({
+                 type: "POST",
+                 url: "/withinDateYn",
+                 data: withinDateData,
+                 success: function(data, textStatus, xhr){
+                     if (data.WITHINDATEYN == "Y") {
+                         $("#joinMemberNoticeID").hide();
+                         $("#joinMemberNoticeID_N").show();
+                     } else {
+                         $("#joinMemberNoticeID").show();
+                         $("#joinMemberNoticeID_N").hide();
+                     }
+                 },
+                 error:function (XMLHttpRequest, textStatus, errorThrown) {
+                     $("#joinMemberNoticeID").show();
+                     $("#joinMemberNoticeID_N").hide();
+                 }
+             });
+*/
+
+        $("#loginForm").validate({
+            ignoreTitle: true,
+            rules: {
+                loginId: {
+                    required: true,
+                    rangelength: [5, 20],
+                    maxlength:20
+
+                },
+                password: {
+                    required: true,
+                    rangelength: [5, 20],
+                    maxlength:20
+                }
+            },
+            messages: {
+                loginId:{
+                    required: "아이디를 입력해주세요.",
+                    rangelength: "{0}자 이상 {1}자 이하로 입력해주세요.",
+                    maxlength:"20자 이하로 입력해주세요."
+                    },
+                password:{
+                    required: "암호를 입력해주세요.",
+                    rangelength: "{0}자 이상 {1}자 이하로 입력해주세요.",
+                    maxlength:"20자 이하로 입력해주세요."
+                    }
+            },
+            submitHandler: function(form) {
+                $.ajax({
+                    //로그인 처리 컨트롤러에 SITE_INFLOW_PATH 전달
+                    url: "/login?site_inflow_path=SIP001",
+                    data: $("#loginForm").serializeObject(),
+                    success: function(data, textStatus, xhr){
+                        if (data.retCd == "Y") {
+                            //site_inflow_path가 유효한지 판단
+                            if("SIP001" == "SIP002"){
+                                    top.location.href = "/planning/planningDetail/PL2017100064";
+                            }else{
+                                if ($('#autoCheck').is(":checked")) {
+                                    $.cookie('sid', data.sid,{ expires : 7 });
+                                    $.cookie('encId', data.encId,{ expires : 7 });
+                                } else {
+                                    $.removeCookie("sid");
+                                    $.removeCookie("encId");
+                                }
+                                if("" != ""){
+                                    top.location.href = "";
+                                }else{
+                                    top.location.href = "/main";
+                                }
+                            }
+                        } else if(data.retCd == "C"){
+                            top.location.href = "/member/memberPasswdChange/"+$("#loginId").val();
+                        } else if(data.retCd == "D"){
+                            top.location.href = "/member/memberDormantChange/"+$("#loginId").val();
+                        } else {
+                            alert(data.retMsg); return;
+                        }
+                    }
+                });
+            }
+        });
+
+
+    /** click event start */
+        //로그인
+        $("#loginBtn").click(function(e){
+            
+            if( $("#saveId").is(':checked') ) {
+                $.cookie('saveId', $("#loginId").val(),{ expires : 7 });
+            } else {
+                $.removeCookie("saveId");
+            }
+            if( $("#autoCheck").is(':checked') ) {
+                $.cookie('autoCheck', 'Y',{ expires : 7 });
+            } else {
+                $.removeCookie("autoCheck");
+            }
+
+            $("#loginForm").submit();
+        });
+
+        $("#password").keypress(function(e){
+            if(e.keyCode == 13){
+                $("#loginBtn").click();
+            }
+        });
+
+        //아이디찾기
+        $(".btn_findID").click(function(e){
+            e.preventDefault();
+            $(".layer_findID").show();
+            $("body").addClass("layerActive");
+            layerClose($(".layer_findID")); //LayerClose
+            layerFix($(".layer_findID")); //LayerFix * 여기까지 필수 항목
+//          selectBase($(".layer_findID")); //selectbox
+        });
+
+        //비밀번호찾기
+        $(".btn_findPW").click(function(e){
+            e.preventDefault();
+            $(".layer_findPW").show();
+            $("body").addClass("layerActive");
+            layerClose($(".layer_findPW")); //LayerClose
+            layerFix($(".layer_findPW")); //LayerFix * 여기까지 필수 항목
+//          selectBase($(".layer_findPW"));
+//          ezMark($(".layer_findPW"));
+        });
+
+        // 회원 가입 공지
+        $("#btn_joinMemberNotice").click(function(e){
+            e.preventDefault();
+            $(".layer_joinMemberNotice").show();
+            $("body").addClass("layerActive");
+            layerClose($(".layer_joinMemberNotice")); //LayerClose
+            layerFix($(".layer_joinMemberNotice")); //LayerFix * 여기까지 필수 항목
+        });
+
+        //  redmine.2902 네이버아이드로 로그인
+        $("#naver_loginBtn").click(function(e){
+            e.preventDefault();
+
+            // @TODO 네이버 로그인 call
+            /*
+                Callback 응답 정보
+
+                API 요청 성공시 : http://콜백URL/redirect?code={code값}&state={state값}
+                API 요청 실패시 : http://콜백URL/redirect?state={state값}&error={에러코드값}&error_description={에러메시지}
+
+                // code :  네아로 인증에 성공하면 반환받는 인증 코드, 접근 토큰(access token) 발급에 사용
+                // state :   사이트 간 요청 위조 공격을 방지하기 위해 애플리케이션에서 생성한 상태 토큰으로 URL 인코딩을 적용한 값
+            */
+
+            // TEST 네이버 로그인 후 callbask 되었다는 가정...
+            // snsType : SNS구분 , code  : 네이버 로그인 API 정보,  state : 연동 성공시 정보
+            //alert('최초 네이버 아이디 로그인 연동이 되었다고...가정함.');
+            //top.location.href = "/oAuthLogin?snsType=NAVER&code=ssoNaverLogin&state=pharmST";
+            // 실제
+            //console.log("naverOAuthApi : https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=8OqbtAUF8nJQQCMxOnWr&redirect_uri=https%3A%2F%2Fwww.pharm-street.com%2FOauthLoginResult&state=20fef9cc-88bb-4b84-ac3c-9a6a6f2c1d18");
+
+            //window.open("", "_blank", "width=" + screen.width + ", width=" +screen.height +",toolbar=no, menubar=no, scrollbars=yes, resizable=yes ")
+            var width=580,height=620;
+            var _left = Math.ceil(( window.screen.width - width )/2);
+            var _top = Math.ceil(( window.screen.height - height )/2);
+
+            //console.log("width : "+width+"   /   height : "+height);
+            //console.log("left : "+_left+"   /  top : "+_top);
+            //console.log("x : "+((screen.availWidth - width)/2 - 40));
+            //console.log("y : "+((screen.availHeight - height)/2 - 40));
+
+            //var ssnLoginPopUp = window.open("https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=8OqbtAUF8nJQQCMxOnWr&redirect_uri=https%3A%2F%2Fwww.pharm-street.com%2FOauthLoginResult&state=20fef9cc-88bb-4b84-ac3c-9a6a6f2c1d18", '',  'top='+_top+', left='+_left+'px, width='+width+',height='+height);  // ,top=350,left=400
+            ssnLoginPopUp = window.open("https://nid.naver.com/oauth2.0/authorize?response_type=code&client_id=8OqbtAUF8nJQQCMxOnWr&redirect_uri=https%3A%2F%2Fwww.pharm-street.com%2FOauthLoginResult&state=20fef9cc-88bb-4b84-ac3c-9a6a6f2c1d18", '',  'width='+width+',height='+height);  // ,top=350,left=400
+            if(ssnLoginPopUp){
+                ssnLoginPopUp.focus();
+            }
+        });
+
+    /** click event finish */
+
+
+    
+
+
+    $("#idSearchForm").validate({
+        rules: {
+            user_nm: {                required: true,                rangelength: [2, 20]
+            },
+            /*  redmine. 2864  아이디 찾기 기능개선 2차 start */
+            usr_cell_center_i: {
+                required: function(){ if($('#call_tp_i').val() == "C"){  return true; }     else{  return false;  }     } ,
+                rangelength: [3, 4]
+            },
+            usr_cell_after_i: {
+                required: function(){  if($('#call_tp_i').val() == "C"){  return true; }     else{  return false;  }     } ,
+                maxlength:4
+            }
+            , usr_tel_top_i: {
+                required: function(){  if($('#call_tp_i').val() == "T"){  return true; }     else{  return false;  }     } ,
+                maxlength:4
+            }
+            , usr_tel_center_i: {
+                required: function(){  if($('#call_tp_i').val() == "T"){  return true; }     else{  return false;  }     } ,
+                rangelength: [3, 4]
+            }
+            , usr_tel_after_i: {
+                required: function(){  if($('#call_tp_i').val() == "T"){  return true; }     else{  return false;  }     } ,
+                maxlength:4
+            }
+            /*  redmine. 2864  아이디 찾기 기능개선 2차 end*/
+
+        },
+        messages: {
+            user_nm:{
+                required: "이름를 입력해주세요.",
+                rangelength: "{0}자 이상 {1}자 이하로 입력해주세요.",
+                },
+            usr_cell_center_i:{
+                required: "휴대폰 가운데 번호를 입력해주세요.",
+                rangelength: "휴대폰 가운데번호를 {0}자 이상 {1}자 이하로 입력해주세요.",
+                },
+            usr_cell_after_i:{
+                required: "휴대폰번호 끝자리 번호를 입력해주세요.",
+                maxlength: "휴대폰 끝자리번호를 {1}자 이하로 입력해주세요.",
+                }
+             /*  redmine. 2864  아이디 찾기 기능개선 2차  start*/
+             ,  usr_tel_top_i:{
+                 required: "약국 지역번호를 입력해주세요.",
+                 maxlength: "지역번호는 {1}자 이하로 입력해주세요.",
+                 }
+             , usr_tel_center_i:{
+                required: "가운데 전화번호를 입력해주세요.",
+                rangelength: "가운데 전화번호는 {0}자 이상 {1}자 이하로 입력해주세요.",
+                }
+             , usr_tel_after_i:{
+                required: "끝자리 전화번호를 입력해주세요.",
+                maxlength: "끝자리 전화번호는 {1}자 이하로 입력해주세요.",
+                }
+                /*  redmine. 2864  아이디 찾기 기능개선 2차  end*/
+                ///////////////////////////////////////////////////////////////////////
+        },
+        submitHandler: function(form) {
+            // redmine. 2857  정상.휴면.폐업 회원 정보만 검색함
+            $.ajax({
+                url: "/member/idSearch",
+                data: $("#idSearchForm").serializeObject(),
+                type:'post',
+                 beforeSend: function () {
+                    $('#idAjaxResult').html('');
+                },
+                success: function(data, textStatus, xhr){
+                    if (data.retCd == "Y") {
+                        //console.log("length : " + data.custInfo.length);
+
+                        var cInfo = '<p>' ;
+                        //  loginId, userSt,  userNm, mobilTxt
+                        $(data.custInfo).each(function(index, cust) {
+                           // console.log("[" + index+"] : " +cust.loginId+"  / " +cust.userSt+" / " +cust.userNm+" / " +cust.mobilTxt);
+
+                            if(index==0)     cInfo = '<strong>' +cust.userNm + '</strong>님의 팜스트리트 아이디는 '
+                            else             cInfo = cInfo + ' , ';
+
+                            cInfo = cInfo +'<strong class="'+( (cust.userSt=="USR002")?"font_color_blue":"font_color_gray" )+'">'+cust.loginId+'</strong>('+cust.userStNm+')';
+
+                        })
+                        cInfo = cInfo + ' 입니다.</p>';
+
+                        $('#idAjaxResult').html(cInfo);
+                        $('#idAjaxResult').removeAttr('style');
+                    } else {
+                        alert(data.retMsg);
+                        $('#idAjaxResult').html('');
+                        $('#idAjaxResult').hide();
+                    }
+                }
+            });
+        }
+    });
+
+    
+    $(".onlyNum").keyup(function (event) {
+        regexp = /[^0-9]/gi;
+        v = $(this).val();
+
+        if( regexp.test(v)) {
+            alert("숫자만 입력가능 합니다.",
+                { label: "확인",
+                  success: function () {
+                    }
+                });
+            $(this).val(v.replace(regexp, ''));
+        }
+    });
+
+    
+    $("#pwSearchForm").validate({
+        rules: {
+            user_nm_p: {
+                required: true,
+                rangelength: [2, 20]
+            },
+            login_id: {
+                required: true,
+                rangelength: [6,20]
+            },
+            /*  redmine. 2851  비밀번호 찾기 개선  start */
+            usr_cell_center_p: {
+                required: function(){ if($('#call_tp_p').val() == "C"){  return true; }     else{  return false;  }     } ,
+                rangelength: [3, 4]
+            },
+            usr_cell_after_p: {
+                required: function(){  if($('#call_tp_p').val() == "C"){  return true; }     else{  return false;  }     } ,
+                maxlength:4
+            }
+            , usr_tel_top_p: {
+                required: function(){  if($('#call_tp_p').val() == "T"){  return true; }     else{  return false;  }     } ,
+                maxlength:4
+            }
+            , usr_tel_center_p: {
+                required: function(){  if($('#call_tp_p').val() == "T"){  return true; }     else{  return false;  }     } ,
+                rangelength: [3, 4]
+            }
+            , usr_tel_after_p: {
+                required: function(){  if($('#call_tp_p').val() == "T"){  return true; }     else{  return false;  }     } ,
+                maxlength:4
+            }
+            /*  redmine. 2851  비밀번호 찾기 개선  end*/
+        },
+        messages: {
+            user_nm_p:{
+                required: "이름을 입력해주세요.",
+                rangelength: "이름을{0}자 이상 {1}자 이하로 입력해주세요.",
+                },
+            login_id:{
+                required: "아이디를 입력해주세요.",
+                rangelength: "아이디는{0}자 이상 {1}자 이하로 입력해주세요.",
+                },
+            usr_cell_center_p:{
+                required: "휴대폰 가운데 번호를 입력해주세요.",
+                rangelength: "휴대폰 가운데번호를 {0}자 이상 {1}자 이하로 입력해주세요.",
+                },
+            usr_cell_after_p:{
+                required: "휴대폰번호 끝자리 번호를 입력해주세요.",
+                maxlength: "휴대폰 끝자리번호를 {1}자 이하로 입력해주세요.",
+                }
+             /*  redmine. 2851  비밀번호 찾기 개선  start*/
+             ,  usr_tel_top_p:{
+                 required: "약국 지역번호를 입력해주세요.",
+                 maxlength: "지역번호는 {1}자 이하로 입력해주세요.",
+                 }
+             , usr_tel_center_p:{
+                required: "가운데 전화번호를 입력해주세요.",
+                rangelength: "가운데 전화번호는 {0}자 이상 {1}자 이하로 입력해주세요.",
+                }
+             ,  usr_tel_after_p:{
+                required: "끝자리 전화번호를 입력해주세요.",
+                maxlength: "끝자리 전화번호는 {1}자 이하로 입력해주세요.",
+                }
+                /*  redmine. 2851  비밀번호 찾기 개선  end*/
+        },
+        submitHandler: function(form) {
+            $.ajax({
+                url: "/member/passwordSearch",
+                data: $("#pwSearchForm").serializeObject(),
+                type:'post',
+                success: function(data, textStatus, xhr){
+
+                    if (data.retCd == "Y") {
+                        alert(data.retMsg,
+                                { label: "확인",
+                                  success: function () {
+                                    $(".layer_wrap").hide();
+                                    $(".layerDim").hide().removeAttr("style");
+                                    $("body").removeClass("layerActive layerActiveDim");
+                                }
+                            });
+
+                    } else {
+                        alert(data.retMsg);
+                    }
+                }
+            });
+        }
+    });
+
+    /* redmine. 2851  비밀번호 찾기 개선  START */
+    // 연락처 구분변경시.
+    $('#call_tp_p').change(function() {
+        //console.log('call_tp_p : ' + $('#call_tp_p').val() );
+
+        if($('#call_tp_p').val() == 'C')  //핸드폰번호
+        {
+            $("#call_tp_cell_p").show();//핸드폰번호 보이기
+            $("#call_tp_tel_p").hide();// 전화번호 숨김
+            $("#call_tp_email_p").hide();// email
+        }
+        else if($('#call_tp_p').val() == 'T')    // 약국 전화번호
+        {
+            $("#call_tp_cell_p").hide();//핸드폰번호 숨김
+            $("#call_tp_tel_p").show();// 전화번호 보이기
+            $("#call_tp_email_p").hide();// email
+        }
+        else if($('#call_tp_p').val() == 'E')    // email
+        {
+            $("#call_tp_cell_p").hide();//핸드폰번호 숨김
+            $("#call_tp_tel_p").hide();// 전화번호 보이기
+            $("#call_tp_email_p").show();// email
+        }
+
+    });
+
+    $("#call_tp_tel_p").hide();// 전화번호 숨김.  최초 핸드폰반호임
+    /* redmine. 2851  비밀번호 찾기 개선   END  */
+    
+    $("#call_tp_email_p").hide();// 전화번호 숨김.  최초 핸드폰반호임
+
+
+    /* redmine. 2864  ID 찾기 2차 개선  START */
+    // 연락처 구분변경시.
+    $('#call_tp_i').change(function() {
+        //console.log('call_tp_i : ' + $('#call_tp_i').val() );
+
+        if($('#call_tp_i').val() == 'T')    // 약국 전화번호
+        {
+            $("#call_tp_tel_i").show();// 전화번호 보이기
+            $("#call_tp_cell_i").hide();//핸드폰번호 숨김
+            $("#call_tp_email_i").hide();// email
+        }
+        else if($('#call_tp_i').val() == 'C') // 핸드폰번호
+        {
+            $("#call_tp_tel_i").hide();// 전화번호 숨김
+            $("#call_tp_cell_i").show();//핸드폰번호 보이기
+            $("#call_tp_email_i").hide();// email
+        } else 
+        {
+            $("#call_tp_tel_i").hide();//핸드폰번호 숨김
+            $("#call_tp_cell_i").hide();//핸드폰번호 숨김
+            $("#call_tp_email_i").show();// 전화번호 보이기
+        }
+
+    });
+
+    $("#call_tp_tel_i").hide();// 전화번호 숨김.  최초 핸드폰반호임
+    /* redmine.2864  ID 찾기 2차 개선    END  */
+    
+    $("#call_tp_email_i").hide();// 이메일 숨김.
+    
+});
+
+function jsIdSearch(){
+
+    //  redmine. 2851  비밀번호 찾기 개선
+    if($('#call_tp_i').val() == 'C') // 핸드폰번호
+    {
+        $('#contact_no_i').val($('#usr_cell_top_i').val()+'-'+$('#usr_cell_center_i').val()+'-'+$('#usr_cell_after_i').val());
+    } 
+    else if($('#call_tp_i').val() == 'T')    // 약국 전화번호
+    {
+        $('#contact_no_i').val($('#usr_tel_top_i').val()+'-'+$('#usr_tel_center_i').val()+'-'+$('#usr_tel_after_i').val());
+    } 
+    else if($('#call_tp_i').val() == 'E')    // email
+    {
+        $('#contact_no_i').val($('#usr_email_center_i').val()+'@'+$('#usr_email_after_i').val());
+    }
+    
+    $("#idSearchForm").submit();
+}
+
+function jsPasswordSearch(){
+	
+	if($('#call_tp_p').val() == 'C')  // 핸드폰번호
+    {
+        $('#contact_no_p').val($('#usr_cell_top_p').val()+'-'+$('#usr_cell_center_p').val()+'-'+$('#usr_cell_after_p').val());
+    }
+	else if($('#call_tp_p').val() == 'T')    // 약국 전화번호
+    //  redmine. 2851  비밀번호 찾기 개선
+    {
+        $('#contact_no_p').val($('#usr_tel_top_p').val()+'-'+$('#usr_tel_center_p').val()+'-'+$('#usr_tel_after_p').val());
+    }
+	else if($('#call_tp_p').val() == 'E')    // email
+    {
+        $('#contact_no_p').val($('#usr_email_center_p').val()+'@'+$('#usr_email_after_p').val());
+    }
+	
+    var sendType = $(':radio[name="pw_type_search"]:checked').val();
+    $('#sendType').val(sendType);
+    $("#pwSearchForm").submit();
+}
+
+//  redmine.  네이버  아이이도 로그인 연동 결과    2902  네이버아이디로로그인(간편로그인)
+
+
+
+// retCd  > N(네이버 연동실패, 로그인 실패 ) , Y(로그인성공), D(휴면계정), C(비번 변경) , O(간편로그인 진행)
+// msg : ERROR 내용
+function OauthLoginResult(retCd,  msg){
+    ssnLoginPopUp.close();
+
+    if (retCd == "Y") {
+
+        // 알림이 별로임..-_-;
+        /*
+        alert(  msg
+              , {   label: "확인"
+                   , success: function () {
+                        //site_inflow_path가 유효한지 판단
+                        if("SIP001" == "SIP002"){
+                            top.location.href = "/planning/planningDetail/PL2017100064";
+                        }else{
+                            top.location.href = "/main";
+                        }
+                    }
+                 }
+        );
+        */
+
+        //site_inflow_path가 유효한지 판단
+        if("SIP001" == "SIP002"){
+            top.location.href = "/planning/planningDetail/PL2017100064";
+        }else{
+            top.location.href = "/main";
+        }
+
+    } else if(retCd == "C"){
+        top.location.href = "/member/memberPasswdChange/"+$("#loginId").val();
+
+    } else if(retCd == "D"){
+        top.location.href = "/member/memberDormantChange/"+$("#loginId").val();
+
+    }else if(retCd=='O')   {
+        top.location.href = "/OauthRegister";
+
+    } else {
+        alert(msg);
+        //alert('OauthLoginResult retCd :  '+retCd+'  /  msg :   '+msg);
+    }
+ }
+
+
+var emailPatten = /^[-!#$%& amp;'*+./0-9=?A-Z^_a-z{|}~]+@[-!#$%&'*+/0-9=?A-Z^_a-z{|}~]+.[-!#$%& amp;'*+./0-9=?A-Z^_a-z{|}~]+$/;
+
+//이메일 폼정리
+$("#email_txt_txt_i").change(function(){ $("#usr_email_after_i").val($(this).val()); if($(this).val()=="") $("#usr_email_after_i").prop("readonly",""); else $("#usr_email_after_i").prop("readonly","true"); });
+
+$("#usr_email_center_i,#usr_email_after_i").blur(function(e){
+	if($("#usr_email_center_i").val()!="" && $("#usr_email_after_i").val()!=""){
+		
+		var emailText = $("#usr_email_center_i").val()+"@"+$("#usr_email_after_i").val();
+		if (!emailPatten.test(emailText)) {
+			$("#emailvalidate_i").text("* 이메일형식이 아닙니다.");
+			$("#emailvalidate_i").attr("class", "arm bold");
+		}else{
+			$("#emailvalidate_i").text("");
+			$("#emailvalidate_i").attr("class", "");
+		}
+	}
+});
+
+//이메일 폼정리
+$("#email_txt_txt_p").change(function(){ $("#usr_email_after_p").val($(this).val()); if($(this).val()=="") $("#usr_email_after_p").prop("readonly",""); else $("#usr_email_after_p").prop("readonly","true"); });
+
+$("#usr_email_center_p,#usr_email_after_p").blur(function(e){
+	if($("#usr_email_center_p").val()!="" && $("#usr_email_after_p").val()!=""){
+		
+		var emailText = $("#usr_email_center_p").val()+"@"+$("#usr_email_after_p").val();
+		if (!emailPatten.test(emailText)) {
+			$("#emailvalidate_p").text("* 이메일형식이 아닙니다.");
+			$("#emailvalidate_p").attr("class", "arm bold");
+		}else{
+			$("#emailvalidate_p").text("");
+			$("#emailvalidate_p").attr("class", "");
+		}
+	}
+});
+
+</script>
+    <!-- //container -->
+ 
+	<!-- footer -->
+	<div id="footer" style="background:#F7F7F7;">
+		<div class="foot_section">
+			<p class="logo">
+				<img src="/common/images/layout/logo_footer.png" alt="Pharm ST. 팜스트리트" />
+				</a>
+			</p>		
+			<p class="isms_logo" style="position:absolute; left:72%; top:39%;">
+				<a href="#" onclick="ismsOnopen(); return false;" href="/common/images/layout/isms-cert.png" title="ISMS 인증서 보기" target="_blank">
+				<img src="//image.pharm-street.com/login/logo_footer_isms1.png" width="101" height="71" alt="Pharm ST. 팜스트리트" />
+				</a>
+			</p>
+			<ul class="list_foot">
+				<li><a href="/policyCheck/policyCompany">회사소개</a></li>
+				<li><a href="/policyCheck/policyPartner">제휴문의</a></li>
+				<li><a href="/policyCheck/policyService"style="text-decoration:underline;font-weight:bold;">이용약관</a></li>
+<!-- 				<li><a href="/policyCheck/policyGuide">이용안내</a></li> -->
+				<li><a href="/policyCheck/policyRefuse">이메일 무단수집거부</a></li>
+				<li><a href="/policyCheck/policyPersonal"style="text-decoration:underline;font-weight:bold;">개인정보처리방침</a></li>
+			</ul>
+			<div class="pharmst_info"><!-- 1123수정 -->
+				<address class="list_st">
+					<span>법인명(상호) : (주)보령컨슈머헬스케어</span> <span class="bar">|</span>
+					<span>대표자(성명) : 정웅제</span> <span class="bar">|</span>
+					<span>사업자등록 번호 : 101-86-10616</span> <span> <a href="#" onclick="bizOnopen(); return false;" target="_blank"  class="btn_white btn_bizinfo">사업자정보확인</a> </span>
+				</address>
+				<address class="list_st">
+					<span>건강기능식품판매업 신고 : 제2014-0025720호 </span> <span class="bar">|</span>
+					<span>의료기기판매업 신고 : 제798호 </span>
+				</address>
+				<address class="list_st">
+					<span>통신판매업신고 : 종로 제 2004-02096<span class="bar">|</span>전화 : 080-708-8255 <span class="bar">|</span>팩스 : 02-764-9305</span>
+					<span>주소 : (03127) 서울특별시 종로 창경궁로 136 보령빌딩 보령컨슈머헬스케어</span> <br />
+					<span>개인정보보호책임자 : <a href="mailto:silver0@boryung.co.kr">손장완(silver0@boryung.co.kr)</a></span>
+				</address>
+				<p class="copyright">COPYRIGHT &copy;보령컨슈머헬스케어 공식쇼핑몰. All rights reserved</p>
+			</div>
+		</div>
+	</div>
+	<!-- //footer -->
+	<div class="layerDim">&nbsp;</div>
+
+	<script type="text/javascript">
+		$(function(){
+			$(".btn_lyNews").click(function(e){ // 공지사항레이어팝업
+				e.preventDefault();
+				$(".layerNews").show();
+				layerClose($(".layerNews")); //LayerClose
+
+			});
+		});
+
+		function bizOnopen()
+		{
+		var url =
+		"http://www.ftc.go.kr/info/bizinfo/communicationViewPopup.jsp?wrkr_no=1018610616";
+		window.open(url, "_blank", "width=750, height=700, toolbar=no, menubar=no, scrollbars=yes, resizable=yes;");
+		}
+		function ismsOnopen()
+		{
+		var url =
+		"/common/images/layout/isms-cert.png";
+		window.open(url, "_blank", "width=450, height=600, toolbar=no, menubar=no, scrollbars=yes, resizable=yes;");
+		}
+	</script>
+
+<!-- AceCounter Log Gathering Script V.8.0.2019080601 -->
+<script language='javascript'>
+	var _AceGID=(function(){var Inf=['gtc19.acecounter.com','8080','AS2A47100098158','AW','0','NaPm,Ncisy','ALL','0']; var _CI=(!_AceGID)?[]:_AceGID.val;var _N=0;var _T=new Image(0,0);if(_CI.join('.').indexOf(Inf[3])<0){ _T.src ="https://"+Inf[0]+'/?cookie'; _CI.push(Inf);  _N=_CI.length; } return {o: _N,val:_CI}; })();
+	var _AceCounter=(function(){var G=_AceGID;var _sc=document.createElement('script');var _sm=document.getElementsByTagName('script')[0];if(G.o!=0){var _A=G.val[G.o-1];var _G=(_A[0]).substr(0,_A[0].indexOf('.'));var _C=(_A[7]!='0')?(_A[2]):_A[3];var _U=(_A[5]).replace(/\,/g,'_');_sc.src='https:'+'//cr.acecounter.com/Web/AceCounter_'+_C+'.js?gc='+_A[2]+'&py='+_A[4]+'&gd='+_G+'&gp='+_A[1]+'&up='+_U+'&rd='+(new Date().getTime());_sm.parentNode.insertBefore(_sc,_sm);return _sc.src;}})();
+</script>
+<!-- AceCounter Log Gathering Script End -->
+
+</div>
+<!-- //wrap -->
+</body>
+</html>
