@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 config.json
 memo.dat
+
+# 진단 파일 — 로그인 세션 페이지(약국/계정 정보)가 담기므로 저장소에 올리지 않음
+debug/
+*.key
+.wholesale_finder_key

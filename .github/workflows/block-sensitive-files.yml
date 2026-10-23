@@ -1,0 +1,25 @@
+# 진단 파일(debug/)·설정·키 파일이 저장소에 올라오면 실패 처리해 알림.
+# GitHub 웹 업로드는 .gitignore를 무시하므로 이 검사로 잡아냄.
+name: Block sensitive files
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if debug/config/key files are tracked
+        run: |
+          found=$(git ls-files | grep -E '^debug/|(^|/)config\.json$|(^|/)memo\.dat$|\.key$|wholesale_finder_key' || true)
+          if [ -n "$found" ]; then
+            echo "::error::민감할 수 있는 파일이 저장소에 있습니다. 삭제하세요 (진단 파일은 채팅으로 직접 전달):"
+            echo "$found"
+            exit 1
+          fi
+          echo "OK"
