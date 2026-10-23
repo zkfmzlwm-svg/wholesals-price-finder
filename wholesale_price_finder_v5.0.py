@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v4.2 — Windows GUI
+도매 최저가 비교 프로그램 v5.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v4.2.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v5.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,9 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v5.0 — 검색 탭에 "품절 제외" 체크박스 추가. 켜면 재고 없는 상품을 결과
+         테이블·요약 카드(총 결과/최저가)에서 숨기며, 재검색 없이 바로 적용됨.
+         선택 상태는 config.json(settings.hide_soldout)에 저장돼 다음 실행에도 유지.
   v4.2 — 팜스트리트 "로그인 성공인데 검색 오류"의 근본 원인 수정. aiohttp가 '='가
          들어간 쿠키 값을 JSESSIONID="...="처럼 큰따옴표로 감싸 보내는데, 팜스트리트
          서버는 이를 다른 세션으로 보고 요청마다 새 세션을 발급 → 로그인 직후
@@ -251,7 +254,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "4.2"
+__version__ = "5.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -401,6 +404,7 @@ DEFAULT_CONFIG = {
         "max_results_per_site": 10,
         "timeout_seconds": 30,
         "sort_by": "price",
+        "hide_soldout": False,
     },
 }
 
@@ -3381,6 +3385,8 @@ class App(tk.Tk):
         self.configure(bg=self.BG)
         self.config_data = load_config()
         self._all_products = []
+        self._last_query = ""
+        self._last_errors = []
         self._sort_col = None
         self._sort_asc = True
         self._ctx_last_cell = ""
@@ -3466,6 +3472,14 @@ class App(tk.Tk):
             tk.Radiobutton(sort_frame, text=txt, variable=self.sort_var, value=val,
                            bg=self.BG, fg=self.TEXT, selectcolor=self.BG3, activebackground=self.BG,
                            activeforeground=self.TEXT, font=("맑은 고딕", 9)).pack(side="left")
+
+        # 품절 제외 — 검색 결과에서 재고 없는 상품 숨김 (재검색 없이 즉시 적용)
+        self.hide_soldout_var = tk.BooleanVar(
+            value=self.config_data.get("settings", {}).get("hide_soldout", False))
+        tk.Checkbutton(bar, text="품절 제외", variable=self.hide_soldout_var,
+                       command=self._on_toggle_soldout,
+                       bg=self.BG, fg=self.TEXT, selectcolor=self.BG3, activebackground=self.BG,
+                       activeforeground=self.TEXT, font=("맑은 고딕", 9)).pack(side="left", padx=(0, 10))
 
         ttk.Button(bar, text="🔍 검색", style="Accent.TButton", command=self._do_search).pack(side="left")
 
@@ -3796,12 +3810,31 @@ class App(tk.Tk):
         else:
             self._all_products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
 
+        self._last_query = query
+        self._last_errors = errors
+        self._render_products()
+
+    def _on_toggle_soldout(self):
+        """품절 제외 토글 → 설정 저장 후 현재 결과 다시 표시"""
+        self.config_data.setdefault("settings", {})["hide_soldout"] = self.hide_soldout_var.get()
+        save_config(self.config_data)
+        if self._last_query:
+            self._render_products()
+
+    def _render_products(self):
+        """_all_products를 요약 카드/테이블에 표시 (품절 제외 옵션 반영)"""
+        hide_soldout = self.hide_soldout_var.get()
+        # iid는 _all_products 인덱스를 유지해야 더블클릭/우클릭/즐겨찾기가 맞는 상품을 가리킴
+        visible = [(i, p) for i, p in enumerate(self._all_products)
+                   if not hide_soldout or p.in_stock]
+        hidden_cnt = len(self._all_products) - len(visible)
+
         # 요약 카드
         for w in self.summary_frame.winfo_children():
             w.destroy()
 
-        priced = [p for p in self._all_products if p.price > 0]
-        if self._all_products:
+        priced = [p for _, p in visible if p.price > 0]
+        if visible:
             if priced:
                 lowest = min(priced, key=lambda p: p.price)
                 low_price = f"₩{lowest.price:,}"
@@ -3812,7 +3845,7 @@ class App(tk.Tk):
                 low_site = "-"
                 low_name = "-"
             cards_data = [
-                ("총 검색 결과", f"{len(self._all_products)}개", self.TEXT),
+                ("총 검색 결과", f"{len(visible)}개", self.TEXT),
                 ("최저가", low_price, self.GREEN),
                 ("최저가 사이트", low_site, self.YELLOW),
                 ("최저가 상품", low_name, self.TEXT),
@@ -3830,20 +3863,21 @@ class App(tk.Tk):
         for c, (base_txt, _) in self._col_headings.items():
             self.tree.heading(c, text=base_txt)
 
-        for i, p in enumerate(self._all_products, 1):
+        for rank, (idx, p) in enumerate(visible, 1):
             stock_txt = "✓" if p.in_stock else "품절"
             price_txt = f"₩{p.price:,}" if p.price > 0 else "가격문의"
             maker = p.extra_info.get("제조사", "")
 
-            self.tree.insert("", "end", iid=f"p_{i-1}", values=(
-                i, p.site_name, p.name,
+            self.tree.insert("", "end", iid=f"p_{idx}", values=(
+                rank, p.site_name, p.name,
                 price_txt,
                 p.unit_price or "-", maker, stock_txt
             ))
 
         # 상태 바
-        err_txt = f"  |  ⚠ 오류: {', '.join(errors)}" if errors else ""
-        self.status_var.set(f"✓ '{query}' 검색 완료 — {len(self._all_products)}개 결과{err_txt}")
+        err_txt = f"  |  ⚠ 오류: {', '.join(self._last_errors)}" if self._last_errors else ""
+        hidden_txt = f" (품절 {hidden_cnt}개 숨김)" if hidden_cnt else ""
+        self.status_var.set(f"✓ '{self._last_query}' 검색 완료 — {len(visible)}개 결과{hidden_txt}{err_txt}")
 
     def _sort_tree(self, col):
         """컬럼 클릭 → 오름차순/내림차순 토글 정렬"""
