@@ -2,7 +2,7 @@
 
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
 
-## 현재 버전: v4.2
+## 현재 버전: v5.0
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -133,20 +133,24 @@
 - 📝 메모장 탭 (암호화 저장)
 - 🖱️ 우클릭 컨텍스트 메뉴 (복사/즐겨찾기)
 - 🔗 더블클릭 → 해당 사이트 상품 검색 페이지 오픈
+- 🚫 품절 제외 체크박스 (검색 결과에서 품절 상품 숨김, 설정 유지)
 
 ## 실행 방법
 ```bash
 pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v4.2.py
+python wholesale_price_finder_v5.0.py
 ```
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v4.2.py
+pyinstaller --onefile --windowed wholesale_price_finder_v5.0.py
 ```
 
 ## 변경 이력
+- v5.0 — 검색 탭에 "품절 제외" 체크박스 추가. 켜면 품절 상품을 결과 테이블과
+  요약 카드(총 결과/최저가)에서 제외하며 재검색 없이 즉시 적용. 상태는
+  `config.json`의 `settings.hide_soldout`에 저장.
 - v4.2 — 쿠키를 브라우저처럼 따옴표 없이 전송(`CookieJar(quote_cookie=False)`).
   aiohttp 기본 동작은 `=`가 든 쿠키를 `JSESSIONID="...="`로 감싸 보내 팜스트리트
   서버가 매 요청 새 세션을 발급 → 로그인 직후 세션이 사라져 검색이 '오류'였음.
