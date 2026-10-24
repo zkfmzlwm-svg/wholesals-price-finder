@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도매 최저가 비교</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="app-header">
+  <h1>🏪 도매 최저가 비교</h1>
+  <span class="sub" id="hdr-info"></span>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="search">🔍 검색</button>
+  <button class="tab" data-tab="favorites">⭐ 즐겨찾기</button>
+  <button class="tab" data-tab="sites">📋 사이트 관리</button>
+  <button class="tab" data-tab="memo">📝 메모장</button>
+  <button class="tab" data-tab="settings">⚙️ 설정</button>
+</nav>
+
+<main>
+  <!-- ─────── 검색 ─────── -->
+  <section class="panel active" id="tab-search">
+    <form class="search-bar" id="search-form">
+      <label for="q" class="bold">검색어</label>
+      <input id="q" type="search" autocomplete="off" placeholder="상품명을 입력하세요">
+      <div class="opts">
+        <span class="sub">정렬</span>
+        <label><input type="radio" name="sort" value="price" checked> 가격</label>
+        <label><input type="radio" name="sort" value="name"> 이름</label>
+        <label class="chk"><input type="checkbox" id="hide-soldout"> 품절 제외</label>
+      </div>
+      <button type="submit" class="btn accent" id="search-btn">🔍 검색</button>
+    </form>
+    <div class="status" id="status">검색어를 입력하고 Enter 또는 검색 버튼을 누르세요</div>
+    <div class="site-status" id="site-status"></div>
+    <details class="errors" id="errors" hidden><summary></summary><ul></ul></details>
+    <div class="cards" id="summary"></div>
+    <div class="table-wrap">
+      <table class="grid" id="result-table">
+        <thead><tr>
+          <th data-col="rank" class="c">#</th>
+          <th data-col="site">사이트</th>
+          <th data-col="name">상품명</th>
+          <th data-col="price" class="r">가격</th>
+          <th data-col="unit_price">단가/규격</th>
+          <th data-col="maker">제조사</th>
+          <th data-col="stock" class="c">재고</th>
+          <th class="c act"></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint">행 더블클릭 → 해당 사이트에서 상품 검색 · 우클릭(또는 ⋯) → 복사/즐겨찾기</p>
+  </section>
+
+  <!-- ─────── 즐겨찾기 ─────── -->
+  <section class="panel" id="tab-favorites">
+    <div class="toolbar">
+      <span class="sub">검색 결과에서 우클릭 → 즐겨찾기 추가로 등록하세요</span>
+      <span class="spacer"></span>
+      <button class="btn danger" id="fav-delete">🗑️ 삭제</button>
+    </div>
+    <div class="table-wrap">
+      <table class="grid selectable" id="fav-table">
+        <thead><tr>
+          <th>사이트</th><th>상품명</th><th class="r">가격</th>
+          <th>단가/규격</th><th>제조사</th><th>추가일시</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint">더블클릭 → 해당 사이트에서 상품명 검색</p>
+  </section>
+
+  <!-- ─────── 사이트 관리 ─────── -->
+  <section class="panel" id="tab-sites">
+    <div class="toolbar">
+      <button class="btn green" id="site-add">➕ 사이트 추가</button>
+      <button class="btn flat" id="site-edit">✏️ 수정</button>
+      <button class="btn flat" id="site-cred">🔑 로그인 설정</button>
+      <button class="btn flat" id="site-test">🔌 로그인 테스트</button>
+      <span class="spacer"></span>
+      <button class="btn flat" id="site-demo">📥 데모 불러오기</button>
+      <button class="btn danger" id="site-delete">🗑️ 삭제</button>
+    </div>
+    <div class="table-wrap">
+      <table class="grid selectable" id="site-table">
+        <thead><tr>
+          <th>사이트 이름</th><th>URL</th><th>크롤러</th><th>로그인</th><th class="c">상태</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint">행을 선택한 뒤 버튼 사용 · 더블클릭 → 수정 · 상태 체크박스로 검색 대상 켜기/끄기</p>
+  </section>
+
+  <!-- ─────── 메모장 ─────── -->
+  <section class="panel" id="tab-memo">
+    <div class="toolbar">
+      <span class="sub">사이트별 로그인 정보 등을 기록하세요</span>
+      <span class="ok-text">🔒 암호화 저장</span>
+      <span class="spacer"></span>
+      <button class="btn green" id="memo-save">💾 저장</button>
+    </div>
+    <textarea id="memo" spellcheck="false"></textarea>
+  </section>
+
+  <!-- ─────── 설정 ─────── -->
+  <section class="panel" id="tab-settings">
+    <div class="settings">
+      <label>사이트당 최대 결과 수 <input id="set-max" type="number" min="1" max="200"></label>
+      <label>타임아웃 (초) <input id="set-timeout" type="number" min="1" max="600"></label>
+      <div><button class="btn green" id="settings-save">💾 설정 저장</button></div>
+      <h3>프로그램 정보</h3>
+      <pre class="sub" id="prog-info"></pre>
+      <h3>진단 파일 (debug/)</h3>
+      <p class="sub">검색/로그인 오류 시 저장되는 사이트 응답입니다. 약국명·계정 정보가 들어 있을 수 있으니 저장소에 올리지 마세요.</p>
+      <div class="toolbar"><button class="btn flat" id="debug-refresh">🔄 새로고침</button></div>
+      <div class="table-wrap">
+        <table class="grid" id="debug-table">
+          <thead><tr><th>파일</th><th class="r">크기</th><th>수정일시</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 우클릭 메뉴 -->
+<div class="ctx" id="ctx" hidden>
+  <button data-act="copy" id="ctx-copy">📋 셀 내용 복사</button>
+  <button data-act="fav">⭐ 즐겨찾기 추가</button>
+  <button data-act="open">🔍 이 상품 사이트에서 검색</button>
+</div>
+
+<!-- 사이트 추가/수정 -->
+<dialog id="site-dlg">
+  <form method="dialog" id="site-form">
+    <h2 id="site-dlg-title">사이트 추가</h2>
+    <div class="form-grid">
+      <label>사이트 이름</label><input name="name" required>
+      <label>사이트 URL</label><input name="base_url" required>
+      <label>크롤러 유형</label><select name="crawler_type"></select>
+      <label class="span2 chk"><input type="checkbox" name="enabled" checked> 활성화 (검색 대상)</label>
+      <label class="span2 chk"><input type="checkbox" name="requires_login" id="req-login"> 로그인 필요</label>
+    </div>
+    <fieldset id="login-fs">
+      <legend>로그인 정보</legend>
+      <div class="form-grid">
+        <label>아이디</label><input name="username" autocomplete="off">
+        <label>비밀번호</label><input name="password" type="password" autocomplete="new-password" placeholder="">
+        <label>로그인 URL</label><input name="login_url">
+        <label>ID 필드명</label><input name="id_field">
+        <label>PW 필드명</label><input name="pw_field">
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>검색 CSS 셀렉터 (Generic 크롤러)</legend>
+      <div class="form-grid small">
+        <label>search_url_pattern</label><input name="sel_search_url_pattern">
+        <label>product_list</label><input name="sel_product_list">
+        <label>product_name</label><input name="sel_product_name">
+        <label>product_price</label><input name="sel_product_price">
+      </div>
+    </fieldset>
+    <div class="dlg-btns">
+      <button class="btn green" value="save">💾 저장</button>
+      <button class="btn flat" value="cancel" formnovalidate>취소</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 로그인 정보 설정 -->
+<dialog id="cred-dlg">
+  <form method="dialog" id="cred-form">
+    <h2>🔑 로그인 설정</h2>
+    <p class="accent-text" id="cred-site"></p>
+    <div class="form-grid">
+      <label>아이디</label><input name="username" autocomplete="off">
+      <label>비밀번호</label><input name="password" type="password" autocomplete="new-password">
+    </div>
+    <p class="sub" id="cred-masked"></p>
+    <div class="dlg-btns">
+      <button class="btn green" value="save">💾 저장</button>
+      <button class="btn flat" value="cancel">취소</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 알림/확인 -->
+<dialog id="msg-dlg">
+  <form method="dialog">
+    <h2 id="msg-title"></h2>
+    <div id="msg-body" class="msg-body"></div>
+    <div class="dlg-btns">
+      <button class="btn green" value="ok" id="msg-ok">확인</button>
+      <button class="btn flat" value="cancel" id="msg-cancel">취소</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 접속 비밀번호 -->
+<dialog id="auth-dlg">
+  <form method="dialog" id="auth-form">
+    <h2>🔒 접속 비밀번호</h2>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <p class="err-text" id="auth-err"></p>
+    <div class="dlg-btns"><button class="btn green" value="ok">확인</button></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
