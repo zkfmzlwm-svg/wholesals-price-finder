@@ -1,8 +1,9 @@
 # 도매 최저가 비교 프로그램
 
-여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 Windows 데스크탑 앱입니다.
+여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
+Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v5.0
+## 현재 버전: v6.0
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -142,18 +143,46 @@
   (`.gitignore`로 제외되며, 웹 업로드로 올라오면 `Block sensitive files` 검사가 실패합니다)
 
 ## 실행 방법
+### 데스크탑 앱
 ```bash
-pip install aiohttp beautifulsoup4 cryptography
-python wholesale_price_finder_v5.0.py
+pip install -r requirements.txt
+python wholesale_price_finder_v6.0.py
 ```
+
+### 웹 버전 (브라우저)
+```bash
+pip install -r requirements.txt
+python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
+```
+- 데스크탑 앱의 기능(검색·정렬·품절 제외·우클릭 메뉴·즐겨찾기·사이트 추가/수정/삭제·
+  로그인 설정·로그인 테스트·데모 불러오기·암호화 메모장·설정)을 전부 브라우저에서 사용.
+  추가로 사이트 활성/비활성 체크박스, 진단 파일(debug/) 목록·다운로드·삭제 제공.
+- 크롤러는 데스크탑 파일(`wholesale_price_finder_v*.py` 중 최신 버전)을 그대로 불러와
+  서버에서 실행합니다(도매 사이트는 브라우저에서 직접 호출 불가 — CORS/쿠키 제약).
+- `config.json`·`memo.dat`·암호화 키(`~/.wholesale_finder_key`)를 데스크탑 앱과 공유하므로
+  번갈아 써도 됩니다. 서버엔 tkinter가 없어도 실행됩니다.
+
+| 옵션 | 환경변수 | 기본값 | 설명 |
+|------|----------|--------|------|
+| `--host` | `WPF_HOST` | `127.0.0.1` | `0.0.0.0`이면 외부 접속 허용 |
+| `--port` | `WPF_PORT` | `8000` | |
+| `--password` | `WPF_WEB_PASSWORD` | 없음 | 접속 비밀번호 (외부 공개·서버 배포 시 필수) |
+| `--data-dir` | `WPF_DATA_DIR` | 프로그램 폴더 | config.json/memo.dat/debug 저장 위치 |
+| `--no-browser` | | | 시작 시 브라우저 자동 열기 끔 |
+
+> 현재 웹 버전은 **1인용**입니다(설정·계정 정보가 서버에 하나만 저장). 여러 사람이 쓰는
+> 서버로 배포하려면 사용자별 계정/설정 분리가 추가로 필요합니다.
 
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v5.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v6.0.py
 ```
 
 ## 변경 이력
+- v6.0 — 웹 버전 추가(`web/server.py` + `web/static/`). 데스크탑 앱의 크롤러·설정·
+  암호화 코드를 그대로 재사용해 모든 기능을 브라우저에서 제공. 선택적 접속 비밀번호,
+  데이터 폴더 지정, 진단 파일 다운로드 지원. 데스크탑 앱 동작 변경 없음.
 - v5.0 — 검색 탭에 "품절 제외" 체크박스 추가. 켜면 품절 상품을 결과 테이블과
   요약 카드(총 결과/최저가)에서 제외하며 재검색 없이 즉시 적용. 상태는
   `config.json`의 `settings.hide_soldout`에 저장.

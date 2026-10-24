@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v5.0 — Windows GUI
+도매 최저가 비교 프로그램 v6.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v5.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v6.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,10 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v6.0 — 웹 버전 추가(web/server.py). 이 파일의 크롤러·설정·암호화 코드를 그대로
+         불러와 브라우저에서 검색/즐겨찾기/사이트 관리/로그인 테스트/메모장/설정을
+         전부 사용 가능. 같은 config.json·memo.dat·암호화 키를 공유하므로 데스크탑
+         앱과 번갈아 써도 됨. 이 파일 자체의 동작 변경은 없음.
   v5.0 — 검색 탭에 "품절 제외" 체크박스 추가. 켜면 재고 없는 상품을 결과
          테이블·요약 카드(총 결과/최저가)에서 숨기며, 재검색 없이 바로 적용됨.
          선택 상태는 config.json(settings.hide_soldout)에 저장돼 다음 실행에도 유지.
@@ -254,7 +258,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "5.0"
+__version__ = "6.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
