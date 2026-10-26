@@ -3,13 +3,13 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v7.0
+## 현재 버전: v7.2
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
 - 사이트 추가 → 소수점 버전업 (예: 1.0 → 1.1)
 
-## 내장 지원 사이트 (12개)
+## 내장 지원 사이트 (14개)
 | 사이트 | 기술 스택 | 로그인 방식 |
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
@@ -24,11 +24,17 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 | 동아DAPmall | 개별 크롤러 (로그인/검색/파싱 전 항목 검증 완료) | 폼 POST (평문, userId/userPw) |
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
+| 동성몰 | NHN Commerce(고도몰5, moment 스킨) (로그인·검색 URL 확인, 로그인 상태 결과 HTML 캡쳐 권장) | AJAX 폼 POST (평문) |
+| 팜페이몰 | ASP.NET + 자체 JDINS 프레임워크 (로그인 확인, 검색 엔드포인트 실계정 캡쳐 필요) | JDINS AJAX POST /loginChk.json |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
-> 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장 12개
-> 사이트 전부 자기 자신만의 크롤러 클래스를 가지며, 로그인/검색 스펙도 모두
-> DevTools 실캡쳐로 확인되어 있습니다.
+> 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장 14개
+> 사이트 전부 자기 자신만의 크롤러 클래스를 가집니다. 기존 12개 사이트는
+> 로그인/검색 스펙이 모두 DevTools 실캡쳐로 확인되어 있고, v7.1~v7.2에서
+> 추가된 동성몰·팜페이몰은 로그인 흐름은 공개 자산(로그인 폼/JS)으로
+> 확인됐으나 로그인 이후 상품 검색은 실계정 세션에서만 노출되어 아직
+> 실캡쳐 검증이 남아 있습니다(동성몰은 검색 URL 확인+고도몰5 공통 파서,
+> 팜페이몰은 검색 엔드포인트 미확인 — 각 크롤러 docstring 참고).
 >
 > 대웅더샵은 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이
 > 분리된 SSO 구조입니다: `POST https://www.shop.co.kr/front/api/auth/mimsLogin`
@@ -146,7 +152,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v7.0.py
+python wholesale_price_finder_v7.2.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -176,10 +182,20 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v7.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v7.2.py
 ```
 
 ## 변경 이력
+- v7.2 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
+  로그인(POST `/loginChk.json`, 필드 `userid`/`userpwd`, 응답 `returnMapper.rtnCode`
+  == "OK" 성공)은 공개 `login.aspx`·`JDINS.js`로 확인해 구현. 로그인 후 상품 검색
+  요청은 세션이 있어야만 노출되어 공개 자산만으로 엔드포인트를 확정할 수 없어,
+  `search()`는 실계정 캡쳐 전까지 안내 메시지를 던지고 로그인만 동작(내장 14개).
+- v7.1 — 사이트 추가: 동성몰(dspmall.kr). NHN Commerce(고도몰5, moment 스킨) 기반
+  B2B 발주몰. 로그인(AJAX POST `/member/login_ps.php`, 필드 `loginId`/`loginPwd`,
+  실패 시 응답 JSON에 `code`/`message`)과 검색 URL(GET `/goods/goods_search.php?keyword=`)은
+  공개 폼·JS로 확인. 상품 목록 파싱은 고도몰5 공통 마크업을 여러 셀렉터 폴백으로
+  처리하며, 로그인 상태 결과 HTML은 실계정 캡쳐로 재확인 권장(내장 13개).
 - v7.0 — 사이트 관리 탭의 "사이트 추가" 버튼 제거(데스크탑·웹). 사이트마다 로그인·
   크롤링 방식이 달라 사이트는 내장 크롤러로만 추가. 수정/로그인 설정/삭제는 유지.
 - v6.0 — 웹 버전 추가(`web/server.py` + `web/static/`). 데스크탑 앱의 크롤러·설정·
