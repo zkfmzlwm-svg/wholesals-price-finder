@@ -3,7 +3,7 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v7.3
+## 현재 버전: v7.4
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -161,7 +161,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v7.3.py
+python wholesale_price_finder_v7.4.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -191,10 +191,13 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v7.3.py
+pyinstaller --onefile --windowed wholesale_price_finder_v7.4.py
 ```
 
 ## 변경 이력
+- v7.4 — 팜페이몰 "로그인은 되는데 검색이 안 됨" 수정. 로그인 확인 페이지가 JS로
+  심는 `loginHash`·`userCode` 쿠키가 앱에서 빠져 검색이 `/logOutDiscon.json`으로
+  튕기던 문제. 같은 쿠키를 직접 설정하고, 세션이 끊기면 0건 대신 오류로 표시.
 - v7.3 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
   로그인(POST `/loginChk.json`, 필드 `userid`/`userpwd`, 응답 `returnMapper.rtnCode`
   == "OK" 성공 → `rtnURL` `/login_confirm.aspx` 이동)과 검색(POST

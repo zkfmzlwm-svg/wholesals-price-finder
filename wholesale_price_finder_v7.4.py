@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v7.3 — Windows GUI
+도매 최저가 비교 프로그램 v7.4 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.3.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.4.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,13 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v7.4 — 팜페이몰 "로그인은 되는데 검색이 안 됨" 수정. 로그인 확인 페이지
+         (/login_confirm.aspx)가 서버 쿠키가 아니라 JS(jdins.setCookie)로
+         loginHash·userCode 쿠키를 심는데, JS를 실행하지 않는 앱에선 두 쿠키가
+         빠져 검색 요청이 302 → /logOutDiscon.json으로 튕기고 조용히 0건이 됐음
+         (비로그인 실측 + 사이트 JS 확인). 같은 쿠키를 브라우저와 동일하게
+         (path=/, encodeURIComponent) 직접 설정하고, 메인 페이지 접근으로 로그인을
+         검증하며, 세션이 끊기면 0건 대신 오류로 표시.
   v7.3 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
          로그인(POST /loginChk.json, 필드 userid/userpwd, 응답 returnMapper.rtnCode
          == "OK" 성공 → rtnURL /login_confirm.aspx 이동)과 검색(POST
@@ -281,7 +288,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "7.3"
+__version__ = "7.4"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -3343,6 +3350,12 @@ class PharmPayMallCrawler(BaseCrawler):
         rtnCode != "OK"면 실패(rtnMessage를 alert, E0001/E0002 등).
       - JDINS.sendAjaxJson은 rtnURL이 있으면 window.location으로 이동하므로
         브라우저와 같게 rtnURL을 GET해 로그인 확인 페이지를 거친다.
+      - (v7.4 확인) login_confirm.aspx는 JS로 쿠키를 심는다:
+          jdins.setCookie("loginHash", "<hash>"); jdins.setCookie("userCode", "MEM...")
+        → $.cookie(key, value, {path:'/', domain: location.hostname}), 값은
+        encodeURIComponent. 이 두 쿠키가 없으면 메인(/usr/umain/umain.aspx)은
+        302 → /isLogin.aspx, 검색 .json은 302 → /logOutDiscon.json (비로그인
+        실측). v7.3은 JS를 실행하지 않아 쿠키가 빠진 채 검색해 0건이었음.
 
     검색 (실계정 DevTools 캡쳐로 확인됨, '마스크' 검색):
       - POST /usr/UPT/UPT001R1.json (form-urlencoded, 값은 JSON 문자열)
@@ -3411,14 +3424,39 @@ class PharmPayMallCrawler(BaseCrawler):
             msg = rm.get("rtnMessage") or f"오류 코드 {rtn_code}"
             raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
 
-        # 브라우저처럼 rtnURL(/login_confirm.aspx?loginHash=...)로 이동해 로그인 완료
+        # 브라우저처럼 rtnURL(/login_confirm.aspx?loginHash=...)로 이동해 로그인 완료.
+        # ⚠️ 이 페이지는 서버 쿠키가 아니라 JS(jdins.setCookie → $.cookie, path=/,
+        # domain=hostname)로 loginHash·userCode 쿠키를 심은 뒤 메인으로 이동함.
+        # JS를 실행하지 않는 aiohttp에선 두 쿠키가 빠져, 이후 .json 요청이 전부
+        # 302 → logOutDiscon.json으로 튕겨 검색이 안 됐음 → 같은 쿠키를 직접 설정.
         rtn_url = rm.get("rtnURL")
-        if rtn_url:
-            async with self.session.get(
-                urljoin(self.BASE + "/", rtn_url),
-                headers={**self._headers, "Referer": f"{self.BASE}/login.aspx"},
-            ) as resp:
-                await resp.read()
+        if not rtn_url:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 응답에 rtnURL이 없습니다.")
+        confirm_url = urljoin(self.BASE + "/", rtn_url)
+        async with self.session.get(
+            confirm_url,
+            headers={**self._headers, "Referer": f"{self.BASE}/login.aspx"},
+        ) as resp:
+            confirm_html = await resp.text(errors="replace")
+
+        js_cookies = dict(re.findall(r'jdins\.setCookie\(\s*"(\w+)"\s*,\s*"([^"]*)"', confirm_html))
+        query = parse_qs(urlparse(confirm_url).query)
+        for key in ("loginHash", "userCode"):
+            value = js_cookies.get(key) or (query.get(key) or [""])[0]
+            if not value:
+                raise LoginError(f"'{self.site_name}' 로그인 실패: {key} 값을 찾지 못했습니다.")
+            self.session.cookie_jar.update_cookies(
+                {key: quote(value, safe="!*'()-_.~")}, response_url=YarlURL(self.BASE + "/"))
+
+        # 브라우저가 다음으로 여는 메인 페이지 — 비로그인이면 302 → isLogin.aspx
+        async with self.session.get(
+            self.MAIN_URL, headers={**self._headers, "Referer": confirm_url}, allow_redirects=False,
+        ) as resp:
+            main_status = resp.status
+            main_loc = resp.headers.get("Location", "")
+            await resp.read()
+        if main_status in (301, 302, 303, 307, 308) and ("isLogin" in main_loc or "login" in main_loc.lower()):
+            raise LoginError(f"'{self.site_name}' 로그인 응답은 성공이지만 메인 페이지 접근이 거부됩니다 ({main_loc})")
         self.logged_in = True
 
     async def verify_login(self) -> bool:
@@ -3461,9 +3499,17 @@ class PharmPayMallCrawler(BaseCrawler):
                 "Referer": self.MAIN_URL,
                 "Origin": self.BASE,
             },
+            allow_redirects=False,
         ) as resp:
             status = resp.status
+            location = resp.headers.get("Location", "")
             body = await resp.text()
+
+        # 세션이 없거나 끊기면 302 → /logOutDiscon.json (확인됨)
+        if status in (301, 302, 303, 307, 308):
+            if "logOut" in location or "login" in location.lower():
+                raise LoginError(f"'{self.site_name}' 로그인 세션이 끊겼습니다 ({location}) — 다시 검색하거나 로그인 정보를 확인하세요")
+            raise RuntimeError(f"'{self.site_name}' 검색 요청이 다른 주소로 이동했습니다 (HTTP {status}, {location})")
 
         try:
             data = json.loads(body)
