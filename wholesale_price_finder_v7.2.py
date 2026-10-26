@@ -27,7 +27,8 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          검색(GET /goods/goods_search.php?keyword=)과 결과 구조(div.item_cont >
          .item_name / .item_price, 이미지는 lazy-load라 data-original)는 실계정
          DevTools 캡쳐로 확인. 상세 링크가 "../goods/..." 상대경로라 urljoin으로
-         절대주소화. 품절 표시는 미확인(추정 판정). 내장 사이트 13개.
+         절대주소화. 품절은 li.item_soldout / .item_soldout_bg / 아이콘
+         alt="품절"로 판정(실캡쳐 확인). 내장 사이트 13개.
   v7.0 — 사이트 관리 탭의 "사이트 추가" 버튼 제거(데스크탑·웹 모두, 웹 POST /api/sites
          API도 제거). 사이트마다 로그인·크롤링 방식이 달라 수동 추가가 의미 없으므로
          사이트는 코드에 내장 크롤러로만 추가. 기존 사이트 수정/로그인 설정/삭제는 유지.
@@ -3030,8 +3031,8 @@ class DspMallCrawler(BaseCrawler):
             .item_money_box strong.item_price span → "5,500원"
             .item_icon_box img[alt] → "구매수량별 차등할인"/"이벤트상품" 등
       - 상세 링크가 "../goods/..." 상대경로라 검색 URL 기준 urljoin 필요.
-      - 품절 상품 표시는 아직 미확인 — "품절" 텍스트/아이콘 alt/soldout
-        클래스로 추정 판정.
+      - 품절 상품(실캡쳐 확인): <li class="item_soldout">, 사진 위
+        strong.item_soldout_bg("SOLD OUT"), .item_icon_box img[alt="품절"]
     """
 
     BASE       = "https://www.dspmall.kr"
@@ -3136,11 +3137,15 @@ class DspMallCrawler(BaseCrawler):
                 img_src = (img_el.get("data-original") or "") if img_el else ""
                 img_url = urljoin(search_url, img_src) if img_src else None
 
-                # 품절 표시는 미확인 — 텍스트/아이콘 alt(.item_icon_box)/soldout
-                # 클래스로 추정
-                icon_alts = " ".join(img.get("alt", "") for img in box.select(".item_icon_box img[alt]"))
-                in_stock = not ("품절" in box.get_text() or "품절" in icon_alts
-                                or box.select_one("[class*=soldout]"))
+                # 품절(실캡쳐 확인): 바깥 li.item_soldout, 사진 위
+                # strong.item_soldout_bg("SOLD OUT"), 아이콘 img[alt="품절"]
+                li = box.find_parent("li")
+                soldout = (
+                    (li is not None and "item_soldout" in (li.get("class") or []))
+                    or box.select_one(".item_soldout_bg") is not None
+                    or box.select_one('.item_icon_box img[alt="품절"]') is not None
+                )
+                in_stock = not soldout
 
                 products.append(Product(
                     name=name, price=price, unit_price=None,
