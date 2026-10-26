@@ -16,11 +16,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
 변경 이력:
   v7.2 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
          로그인(POST /loginChk.json, 필드 userid/userpwd, 응답 returnMapper.rtnCode
-         == "OK" 성공)은 공개 login.aspx·JDINS.js로 확인해 구현. 단, 로그인 후
-         상품 검색 요청은 세션이 있어야만 노출되어 공개 자산만으로 엔드포인트·
-         파라미터·응답 구조를 확정할 수 없었음 → search()는 실계정 캡쳐 전까지
-         명확한 안내 메시지를 던지고(조용한 0건/오파싱 방지) 로그인만 동작.
-         내장 사이트 14개.
+         == "OK" 성공 → rtnURL /login_confirm.aspx 이동)과 검색(POST
+         /usr/UPT/UPT001R1.json, form 값 pageInfo/formData가 JSON 문자열, 응답
+         goodsnm/stand/syncodenm/minprice/stocksum)은 실계정 DevTools 캡쳐로
+         확인. 페이지당 14개, 최대 5페이지 수집 후 최저가 정렬. 상품 상세 GET
+         주소는 미확인이라 링크는 사이트 홈. 내장 사이트 14개.
   v7.1 — 사이트 추가: 동성몰(dspmall.kr). NHN Commerce(고도몰5, moment 스킨)
          기반 B2B 발주몰. 로그인(AJAX POST /member/login_ps.php, 필드 loginId/
          loginPwd, 실패 시 응답 JSON에 code/message)은 공개 로그인 폼·JS로 확인.
@@ -3175,31 +3175,43 @@ class PharmPayMallCrawler(BaseCrawler):
     /isLogin.aspx(자동로그인 쿠키 확인) → 없으면 /login.aspx(로그인 폼)로
     이동한다.
 
-    로그인 (공개 login.aspx + JDINS.js로 확인됨):
-      - 로그인 폼 id: userid / userpwd
-      - loginchk()가 JDINS.sendAjaxJson으로 전송:
-          POST /loginChk.json  (form-urlencoded: userid, userpwd)
-        sendAjaxJson은 $URL("/loginChk") + ".json"으로 POST하고 응답 JSON의
-        returnMapper를 콜백(formData)에 넘긴다.
-      - 성공/실패 판정: formData(data)가 `data.rtnCode != "OK"`면 실패로 보고
-        data.rtnMessage를 alert. 즉 returnMapper.rtnCode == "OK" 가 성공.
-        (E0001=아이디 포커스, E0002=비밀번호 포커스 — 둘 다 실패 코드)
+    로그인 (실계정 DevTools 캡쳐로 확인됨):
+      - POST /loginChk.json  (form-urlencoded: userid, userpwd — 평문)
+      - 응답: {"returnMapper": {"rtnCode": "OK", "rtnMessage": "",
+               "rtnURL": "/login_confirm.aspx?loginHash=...&userCode=MEM...
+                          &url=/usr/umain/umain.aspx", ...}, "baseMapper": {...}}
+        rtnCode != "OK"면 실패(rtnMessage를 alert, E0001/E0002 등).
+      - JDINS.sendAjaxJson은 rtnURL이 있으면 window.location으로 이동하므로
+        브라우저와 같게 rtnURL을 GET해 로그인 확인 페이지를 거친다.
 
-    ⚠️ 검색(상품 조회) 엔드포인트 미확인:
-      로그인 이후 상품 검색은 프레임 내부 /usr/*.aspx 페이지에서 JDINS
-      sendAjaxJson(POST /usr/.../*.json)으로 이뤄지는데, 해당 요청은 로그인
-      세션이 있어야만 노출되어 공개 자산만으로는 URL/파라미터/응답 구조를
-      확정할 수 없었다. 실계정으로 로그인 후 '상품 검색' 시 DevTools Network
-      탭의 *.json 요청(요청 URL·form data·응답 JSON 키)을 캡쳐해 _SEARCH_URL과
-      search() 파싱을 채워야 한다. 그때까지 search()는 명확한 안내 메시지를
-      던진다(조용한 0건/오파싱 방지).
+    검색 (실계정 DevTools 캡쳐로 확인됨, '마스크' 검색):
+      - POST /usr/UPT/UPT001R1.json (form-urlencoded, 값은 JSON 문자열)
+          pageInfo    = {"viewListCnt":14,"viewPageCnt":5}
+          formData    = {"page":"1", ..., "directType":"p", "goodsnm":"<검색어>"}
+          requestsort = (빈 값)
+      - 응답 상품 객체 키: goodsnm(상품명), stand(규격, "1매"),
+        syncodenm(제조사), minprice(가격, 문자열 "180"), stocksum(재고,
+        문자열), img2(상대경로 이미지), pmgcode(상품코드)
+      - 상품 배열을 감싸는 상위 키는 캡쳐에 없어서, 응답에서 goodsnm을 가진
+        dict 배열을 재귀로 찾는다(JDINS 그리드 응답은 보통
+        returnMapper.rtnObject[그리드ID]).
+      - 페이지당 14개(브라우저와 동일) — 최저가를 넓게 보려고 max_results*3개
+        또는 마지막 페이지(14개 미만)까지 page를 올려 가며 요청한다.
+      - 상품별 상세 페이지 GET 주소는 미확인이라 상품 링크는 사이트 홈으로 대체.
     """
 
-    BASE      = "https://www.pharmpaymall.com"
-    LOGIN_URL = "https://www.pharmpaymall.com/loginChk.json"
+    BASE       = "https://www.pharmpaymall.com"
+    LOGIN_URL  = "https://www.pharmpaymall.com/loginChk.json"
+    SEARCH_URL = "https://www.pharmpaymall.com/usr/UPT/UPT001R1.json"
+    MAIN_URL   = "https://www.pharmpaymall.com/usr/umain/umain.aspx"
+    PAGE_SIZE  = 14
+    MAX_PAGES  = 5
 
-    # 실계정 캡쳐 후 아래 두 값을 채우면 search()가 활성화된다.
-    _SEARCH_URL = ""  # 예: "https://www.pharmpaymall.com/usr/ugo/ugoGoodsListR.json"
+    _AJAX_HEADERS = {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+    }
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -3211,7 +3223,7 @@ class PharmPayMallCrawler(BaseCrawler):
 
         await self._ensure_session()
 
-        # 로그인 폼 페이지 방문(JSESSIONID 발급)
+        # 로그인 폼 페이지 방문(세션 쿠키 발급)
         async with self.session.get(f"{self.BASE}/login.aspx", headers=self._headers) as resp:
             await resp.text()
 
@@ -3219,12 +3231,9 @@ class PharmPayMallCrawler(BaseCrawler):
         async with self.session.post(
             self.LOGIN_URL, data=login_data,
             headers={
-                **self._headers,
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "X-Requested-With": "XMLHttpRequest",
+                **self._headers, **self._AJAX_HEADERS,
                 "Referer": f"{self.BASE}/login.aspx",
                 "Origin": self.BASE,
-                "Accept": "application/json, text/javascript, */*; q=0.01",
             },
         ) as resp:
             body = await resp.text()
@@ -3234,27 +3243,133 @@ class PharmPayMallCrawler(BaseCrawler):
         except (ValueError, json.JSONDecodeError):
             raise LoginError(f"'{self.site_name}' 로그인 실패: 서버 응답을 해석할 수 없습니다.")
 
-        # sendAjaxJson: 실제 결과는 returnMapper 안에 들어 있음(없으면 최상위)
         rm = data.get("returnMapper") if isinstance(data, dict) else None
         if not isinstance(rm, dict):
-            rm = data if isinstance(data, dict) else {}
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 응답에 returnMapper가 없습니다.")
         rtn_code = rm.get("rtnCode")
         if rtn_code != "OK":
             msg = rm.get("rtnMessage") or f"오류 코드 {rtn_code}"
             raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
+
+        # 브라우저처럼 rtnURL(/login_confirm.aspx?loginHash=...)로 이동해 로그인 완료
+        rtn_url = rm.get("rtnURL")
+        if rtn_url:
+            async with self.session.get(
+                urljoin(self.BASE + "/", rtn_url),
+                headers={**self._headers, "Referer": f"{self.BASE}/login.aspx"},
+            ) as resp:
+                await resp.read()
         self.logged_in = True
 
     async def verify_login(self) -> bool:
         return self.logged_in
 
+    @classmethod
+    def _find_items(cls, obj):
+        """응답 JSON에서 goodsnm 키를 가진 dict 배열을 재귀로 찾는다."""
+        if isinstance(obj, list):
+            if obj and all(isinstance(x, dict) for x in obj) and "goodsnm" in obj[0]:
+                return obj
+            for x in obj:
+                found = cls._find_items(x)
+                if found is not None:
+                    return found
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                found = cls._find_items(v)
+                if found is not None:
+                    return found
+        return None
+
+    async def _fetch_page(self, query: str, page: int):
+        form = {
+            "page": str(page), "sortkey": "", "gc2code": "", "gc3code": "",
+            "drugcode": "", "drugfg": "", "url": "", "abcd": "", "gc1code": "",
+            "directType": "p", "smvcode": "", "searchType": "", "syncodenm": "",
+            "goodsnm": query,
+        }
+        payload = {
+            "pageInfo": json.dumps({"viewListCnt": self.PAGE_SIZE, "viewPageCnt": 5},
+                                   separators=(",", ":")),
+            "formData": json.dumps(form, ensure_ascii=False, separators=(",", ":")),
+            "requestsort": "",
+        }
+        async with self.session.post(
+            self.SEARCH_URL, data=payload,
+            headers={
+                **self._headers, **self._AJAX_HEADERS,
+                "Referer": self.MAIN_URL,
+                "Origin": self.BASE,
+            },
+        ) as resp:
+            status = resp.status
+            body = await resp.text()
+
+        try:
+            data = json.loads(body)
+        except (ValueError, json.JSONDecodeError):
+            # 세션 만료 시 JSON 대신 로그인 페이지 HTML이 오는 경우
+            if "login" in body.lower():
+                raise LoginError(f"'{self.site_name}' 로그인이 필요합니다. ID/비밀번호를 설정하세요.")
+            path = self.save_debug("검색응답", body)
+            raise RuntimeError(f"'{self.site_name}' 검색 응답을 해석할 수 없습니다 (HTTP {status}) — 진단 파일: {path}")
+
+        rm = data.get("returnMapper") if isinstance(data, dict) else None
+        if isinstance(rm, dict) and rm.get("rtnCode") not in (None, "", "OK"):
+            msg = rm.get("rtnMessage") or rm.get("rtnCode")
+            raise RuntimeError(f"'{self.site_name}' 검색 오류: {msg}")
+
+        items = self._find_items(data)
+        if items is None:
+            # 결과 0건일 때도 배열 자체가 없을 수 있음 — 구조 확인용으로 저장만
+            self.save_debug("검색응답", body, ext="json")
+            return []
+        return items
+
     async def search(self, query: str, max_results: int = 10) -> list:
-        if not self._SEARCH_URL:
-            raise RuntimeError(
-                f"'{self.site_name}' 상품 검색 엔드포인트가 아직 확인되지 않았습니다. "
-                "로그인 후 사이트에서 상품을 검색할 때 발생하는 요청(URL·파라미터·"
-                "응답 구조)을 캡쳐해 크롤러에 반영해야 합니다. (로그인 기능은 동작)")
-        # TODO(실계정 캡쳐 후): sendAjaxJson POST → 응답 JSON 파싱으로 교체
-        return []
+        await self._ensure_session()
+
+        items = []
+        for page in range(1, self.MAX_PAGES + 1):
+            page_items = await self._fetch_page(query, page)
+            items.extend(page_items)
+            if len(page_items) < self.PAGE_SIZE or len(items) >= max_results * 3:
+                break
+
+        products = []
+        seen = set()
+        for item in items:
+            try:
+                code = item.get("pmgcode") or ""
+                if code and code in seen:
+                    continue
+                seen.add(code)
+
+                name = self.clean_text(item.get("goodsnm") or "")
+                price = self.extract_price(str(item.get("minprice") or ""))
+                if not name or price <= 0:
+                    continue
+                stand = self.clean_text(item.get("stand") or "")
+                maker = self.clean_text(item.get("syncodenm") or "")
+                stock_raw = item.get("stocksum")
+                in_stock = True if stock_raw in (None, "") else self.extract_price(str(stock_raw)) > 0
+                img = item.get("img2") or ""
+
+                products.append(Product(
+                    name=f"{name} ({stand})" if stand else name,
+                    price=price,
+                    unit_price=stand or None,
+                    url=f"{self.BASE}/",
+                    site_name=self.site_name,
+                    image_url=urljoin(self.BASE + "/", img) if img else None,
+                    in_stock=in_stock,
+                    extra_info={"제조사": maker} if maker else {},
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
 
 
 CUSTOM_CRAWLERS = {
@@ -3638,7 +3753,7 @@ PHARMPAYMALL_PRESET = {
         "login_check_url": None, "login_check_selector": None, "login_check_text": None,
     },
     "selectors": {
-        "search_url_pattern": "",
+        "search_url_pattern": "/usr/UPT/UPT001R1.json",
         "product_list": "", "product_name": "", "product_price": "",
         "product_link": "", "product_image": "",
     },

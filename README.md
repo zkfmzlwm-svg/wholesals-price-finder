@@ -25,16 +25,15 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 | 동성몰 | NHN Commerce(고도몰5, moment 스킨) (검색/목록 파싱 실캡쳐 확인됨) | AJAX 폼 POST (평문) |
-| 팜페이몰 | ASP.NET + 자체 JDINS 프레임워크 (로그인 확인, 검색 엔드포인트 실계정 캡쳐 필요) | JDINS AJAX POST /loginChk.json |
+| 팜페이몰 | ASP.NET + 자체 JDINS 프레임워크 (로그인/검색 실캡쳐 확인됨) | AJAX POST /loginChk.json (평문 userid/userpwd) |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
 > 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장 14개
 > 사이트 전부 자기 자신만의 크롤러 클래스를 가집니다. 기존 12개 사이트는
 > 로그인/검색 스펙이 모두 DevTools 실캡쳐로 확인되어 있고, v7.1~v7.2에서
-> 추가된 동성몰·팜페이몰은 로그인 흐름을 공개 자산(로그인 폼/JS)으로
-> 확인했습니다. 동성몰은 검색 결과·품절 표시 구조까지 실캡쳐로 확인됐고,
-> 팜페이몰은 로그인 이후 상품 검색이 실계정 세션에서만 노출되어
-> 검색 엔드포인트 캡쳐가 남아 있습니다(각 크롤러 docstring 참고).
+> 추가된 동성몰·팜페이몰도 검색 요청·결과 구조는 실계정 DevTools 캡쳐로
+> 확인했습니다. 로그인은 팜페이몰은 실캡쳐로, 동성몰은 공개 로그인 폼/JS로
+> 확인했습니다(각 크롤러 docstring 참고).
 >
 > 대웅더샵은 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이
 > 분리된 SSO 구조입니다: `POST https://www.shop.co.kr/front/api/auth/mimsLogin`
@@ -188,9 +187,10 @@ pyinstaller --onefile --windowed wholesale_price_finder_v7.2.py
 ## 변경 이력
 - v7.2 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
   로그인(POST `/loginChk.json`, 필드 `userid`/`userpwd`, 응답 `returnMapper.rtnCode`
-  == "OK" 성공)은 공개 `login.aspx`·`JDINS.js`로 확인해 구현. 로그인 후 상품 검색
-  요청은 세션이 있어야만 노출되어 공개 자산만으로 엔드포인트를 확정할 수 없어,
-  `search()`는 실계정 캡쳐 전까지 안내 메시지를 던지고 로그인만 동작(내장 14개).
+  == "OK" 성공 → `rtnURL` `/login_confirm.aspx` 이동)과 검색(POST
+  `/usr/UPT/UPT001R1.json`, form 값 `pageInfo`/`formData`가 JSON 문자열, 응답
+  `goodsnm`/`stand`/`syncodenm`/`minprice`/`stocksum`)은 실계정 DevTools 캡쳐로 확인.
+  상품 상세 GET 주소는 미확인이라 링크는 사이트 홈(내장 14개).
 - v7.1 — 사이트 추가: 동성몰(dspmall.kr). NHN Commerce(고도몰5, moment 스킨) 기반
   B2B 발주몰. 로그인(AJAX POST `/member/login_ps.php`, 필드 `loginId`/`loginPwd`,
   실패 시 응답 JSON에 `code`/`message`)은 공개 폼·JS로 확인. 검색(GET
