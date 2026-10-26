@@ -23,11 +23,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장 사이트 14개.
   v7.1 — 사이트 추가: 동성몰(dspmall.kr). NHN Commerce(고도몰5, moment 스킨)
          기반 B2B 발주몰. 로그인(AJAX POST /member/login_ps.php, 필드 loginId/
-         loginPwd, 실패 시 응답 JSON에 code/message)과 검색 URL(GET
-         /goods/goods_search.php?keyword=)은 공개 로그인 폼·JS로 확인. 상품
-         목록 파싱은 고도몰5 공통 마크업(goods_view 링크 + 상품명/판매가)을
-         여러 셀렉터 폴백으로 처리하며, 로그인 상태 결과 HTML은 실계정 캡쳐로
-         재확인 권장(0건+안내문구 없으면 debug/ 저장). 내장 사이트 13개.
+         loginPwd, 실패 시 응답 JSON에 code/message)은 공개 로그인 폼·JS로 확인.
+         검색(GET /goods/goods_search.php?keyword=)과 결과 구조(div.item_cont >
+         .item_name / .item_price, 이미지는 lazy-load라 data-original)는 실계정
+         DevTools 캡쳐로 확인. 상세 링크가 "../goods/..." 상대경로라 urljoin으로
+         절대주소화. 품절 표시는 미확인(추정 판정). 내장 사이트 13개.
   v7.0 — 사이트 관리 탭의 "사이트 추가" 버튼 제거(데스크탑·웹 모두, 웹 POST /api/sites
          API도 제거). 사이트마다 로그인·크롤링 방식이 달라 수동 추가가 의미 없으므로
          사이트는 코드에 내장 크롤러로만 추가. 기존 사이트 수정/로그인 설정/삭제는 유지.
@@ -3016,15 +3016,22 @@ class DspMallCrawler(BaseCrawler):
           성공 → code/message 없음(출석 체크 msg 문자열 등) + 세션 쿠키 설정
       - 로그인 성공 쿠키: GD5SESSID (도메인 dspmall.kr)
 
-    검색 (URL 확인됨 / 로그인 상태 결과 HTML 구조는 실계정 캡쳐 필요):
-      - GET /goods/goods_search.php?keyword={query}
+    검색 (실계정 DevTools 캡쳐로 확인됨, '정로환' 검색):
+      - GET /goods/goods_search.php?keyword={query} → 200
+        (브라우저는 adUrl/recentCount도 붙이지만 고도몰5 검색엔 keyword만 필수)
       - 비로그인 시 location.replace(".../intro/member.php?returnUrl=...")만
-        담긴 빈 셸을 반환(확인됨) → 결과가 없고 member.php로 리다이렉트되면
-        "로그인 필요"로 처리한다.
-      - 상품 목록 파싱은 고도몰5 공통 마크업(li 안의
-        a[href*="goods_view.php?goodsNo="], 상품명/판매가 클래스)을 기준으로
-        하되, 스킨 커스터마이징으로 클래스가 다를 수 있어 여러 셀렉터를
-        폴백으로 시도하고, 그래도 0건이면 응답을 debug/ 에 저장한다.
+        담긴 빈 셸을 반환(확인됨) → "로그인 필요"로 처리한다.
+      - 상품 1개 = <li> > div.item_cont
+          div.item_photo_box a[href="../goods/goods_view.php?goodsNo=..."]
+            img.gd_image_lazy — src는 1x1 data URI 더미, 실제 주소는
+            data-original (lazy-load)
+          div.item_info_cont
+            .item_tit_box strong.item_name → 상품명
+            .item_money_box strong.item_price span → "5,500원"
+            .item_icon_box img[alt] → "구매수량별 차등할인"/"이벤트상품" 등
+      - 상세 링크가 "../goods/..." 상대경로라 검색 URL 기준 urljoin 필요.
+      - 품절 상품 표시는 아직 미확인 — "품절" 텍스트/아이콘 alt/soldout
+        클래스로 추정 판정.
     """
 
     BASE       = "https://www.dspmall.kr"
@@ -3105,76 +3112,41 @@ class DspMallCrawler(BaseCrawler):
         products = []
         seen = set()
 
-        # 고도몰5 상품 목록: li(또는 상품 박스) 단위로 goods_view 링크를 가짐
-        anchors = soup.select('a[href*="goods_view.php?goodsNo="]')
-        for a in anchors:
+        # 상품 1개 = div.item_cont (실캡쳐 확인)
+        for box in soup.select("div.item_cont"):
             try:
-                href = a.get("href", "")
+                link_el = box.select_one('a[href*="goods_view.php?goodsNo="]')
+                name_el = box.select_one(".item_name")
+                price_el = box.select_one(".item_price")
+                if not (link_el and name_el and price_el):
+                    continue
+                href = link_el.get("href", "")
                 m = re.search(r"goodsNo=(\d+)", href)
-                if not m:
+                if not m or m.group(1) in seen:
                     continue
-                goods_no = m.group(1)
-                if goods_no in seen:
-                    continue
+                seen.add(m.group(1))
 
-                # 링크에서 가장 가까운 상품 박스(li) 컨테이너 찾기
-                box = a.find_parent("li") or a.find_parent(
-                    "div", class_=re.compile(r"item|goods|prd"))
-                if box is None:
-                    box = a.parent
-
-                # 상품명: 전용 클래스 우선, 없으면 링크 텍스트/title/img alt
-                name = ""
-                for sel in (".item_name", ".goods_name", ".name", ".tit",
-                            ".item_tit_box", ".prd_name", ".subject"):
-                    ne = box.select_one(sel)
-                    if ne and self.clean_text(ne.get_text()):
-                        name = self.clean_text(ne.get_text())
-                        break
-                if not name:
-                    name = self.clean_text(a.get_text()) or a.get("title", "")
-                if not name:
-                    img = box.select_one("img[alt]")
-                    if img:
-                        name = self.clean_text(img.get("alt", ""))
-                if not name:
+                name = self.clean_text(name_el.get_text())
+                price = self.extract_price(price_el.get_text())
+                if not name or price <= 0:
                     continue
 
-                # 판매가: 판매가 클래스 우선, 없으면 '원'이 붙은 숫자 텍스트
-                price = 0
-                for sel in (".item_price", ".sell_price", ".price",
-                            ".item_money_box strong", "strong.price", ".cost"):
-                    pe = box.select_one(sel)
-                    if pe:
-                        price = self.extract_price(pe.get_text())
-                        if price > 0:
-                            break
-                if price <= 0:
-                    pm = re.search(r"([\d,]+)\s*원", box.get_text())
-                    if pm:
-                        price = self.extract_price(pm.group(1))
-                if price <= 0:
-                    continue
+                # 이미지는 lazy-load: src는 data URI 더미, 실제 주소는 data-original
+                img_el = box.select_one(".item_photo_box img")
+                img_src = (img_el.get("data-original") or "") if img_el else ""
+                img_url = urljoin(search_url, img_src) if img_src else None
 
-                # 이미지
-                img_el = box.select_one("img")
-                img_src = img_el.get("src", "") if img_el else ""
-                if img_src.startswith("//"):
-                    img_src = "https:" + img_src
-                img_url = self.full_url(img_src) if img_src else None
+                # 품절 표시는 미확인 — 텍스트/아이콘 alt(.item_icon_box)/soldout
+                # 클래스로 추정
+                icon_alts = " ".join(img.get("alt", "") for img in box.select(".item_icon_box img[alt]"))
+                in_stock = not ("품절" in box.get_text() or "품절" in icon_alts
+                                or box.select_one("[class*=soldout]"))
 
-                # 품절 여부(고도몰5: soldout 뱃지/클래스)
-                box_txt = box.get_text()
-                in_stock = not ("품절" in box_txt or box.select_one(".soldout, .item_soldout"))
-
-                seen.add(goods_no)
                 products.append(Product(
                     name=name, price=price, unit_price=None,
-                    url=self.full_url(href), site_name=self.site_name,
+                    url=urljoin(search_url, href), site_name=self.site_name,
                     image_url=img_url, in_stock=in_stock,
                 ))
-                if len(products) >= max_results:
-                    break
             except Exception:
                 continue
 
@@ -3184,7 +3156,7 @@ class DspMallCrawler(BaseCrawler):
             path = self.save_debug("검색결과", html)
             raise RuntimeError(
                 f"'{self.site_name}' 검색 결과에서 상품 목록을 찾지 못했습니다"
-                f"(로그인 상태 결과 HTML 구조 확인 필요) — 진단 파일: {path}")
+                f"(사이트 구조 변경 가능) — 진단 파일: {path}")
 
         products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
         return products[:max_results]
