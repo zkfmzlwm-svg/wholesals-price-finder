@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v7.1 — Windows GUI
+도매 최저가 비교 프로그램 v7.3 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.1.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.3.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,21 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v7.3 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
+         로그인(POST /loginChk.json, 필드 userid/userpwd, 응답 returnMapper.rtnCode
+         == "OK" 성공 → rtnURL /login_confirm.aspx 이동)과 검색(POST
+         /usr/UPT/UPT001R1.json, form 값 pageInfo/formData가 JSON 문자열, 응답
+         goodsnm/stand/syncodenm/minprice/stocksum)은 실계정 DevTools 캡쳐로
+         확인. 페이지당 14개, 최대 5페이지 수집 후 최저가 정렬. 상품 상세 GET
+         주소는 미확인이라 링크는 사이트 홈. 내장 사이트 15개.
+  v7.2 — 사이트 추가: 동성몰(dspmall.kr). NHN Commerce(고도몰5, moment 스킨)
+         기반 B2B 발주몰. 로그인(AJAX POST /member/login_ps.php, 필드 loginId/
+         loginPwd, 실패 시 응답 JSON에 code/message)은 공개 로그인 폼·JS로 확인.
+         검색(GET /goods/goods_search.php?keyword=)과 결과 구조(div.item_cont >
+         .item_name / .item_price, 이미지는 lazy-load라 data-original)는 실계정
+         DevTools 캡쳐로 확인. 상세 링크가 "../goods/..." 상대경로라 urljoin으로
+         절대주소화. 품절은 li.item_soldout / .item_soldout_bg / 아이콘
+         alt="품절"로 판정(실캡쳐 확인). 내장 사이트 14개.
   v7.1 — 광동몰(kdshop.co.kr) 추가 — 전용 크롤러 KDShopCrawler. 실계정 DevTools
          캡처로 확인한 스펙: 로그인 POST /member/login_act.do(id, xpw 평문 — 로그인
          화면의 reCAPTCHA는 클라이언트 검사뿐이라 서버 검증 없음, 성공 시
@@ -266,7 +281,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "7.1"
+__version__ = "7.3"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -407,6 +422,8 @@ SITE_SEARCH_PATTERNS = {
     "새로팜":  "https://www.saeropharm.com/w/product/searchProductList.do?mainSchValue={query}",
     "광동몰":  "https://kdshop.co.kr/goods/category.do?stype=all&sword={query}",
     "서울약사신협": "https://www.cupharm.kr/order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&page=1&s_w12_flag=P&search_flg=ok&w14_user_type=1&search_type=2",
+    "동성몰":  "https://www.dspmall.kr/goods/goods_search.php?keyword={query}",
+    "팜페이몰": "https://www.pharmpaymall.com/",
 }
 
 DEFAULT_CONFIG = {
@@ -3141,6 +3158,380 @@ class KDShopCrawler(BaseCrawler):
         return products
 
 
+class DspMallCrawler(BaseCrawler):
+    """
+    동성몰 (dspmall.kr) 전용 크롤러. — v7.2에서 추가.
+
+    NHN Commerce(구 고도몰5, 'moment' 스킨) 기반 B2B 발주 쇼핑몰.
+    로그인하지 않으면 모든 상품/검색 페이지가 /intro/member.php(로그인 폼)로
+    리다이렉트된다.
+
+    로그인 (공개 로그인 폼 HTML/JS로 확인됨):
+      - 폼: <form id="formLogin" method="post" action="/member/login_ps.php">
+      - 제출은 JS가 가로채 AJAX로 POST /member/login_ps.php 전송
+        (필드: loginId, loginPwd, returnUrl=/, saveId, mode=login)
+      - 비밀번호 평문 전송(클라이언트측 암호화 없음 — 폼에 그대로 serialize)
+      - 응답(JSON):
+          실패 → {code, message, url} (message 예: "아이디, 비밀번호가
+                 일치하지 않습니다. 다시 입력해 주세요.")
+          성공 → code/message 없음(출석 체크 msg 문자열 등) + 세션 쿠키 설정
+      - 로그인 성공 쿠키: GD5SESSID (도메인 dspmall.kr)
+
+    검색 (실계정 DevTools 캡쳐로 확인됨, '정로환' 검색):
+      - GET /goods/goods_search.php?keyword={query} → 200
+        (브라우저는 adUrl/recentCount도 붙이지만 고도몰5 검색엔 keyword만 필수)
+      - 비로그인 시 location.replace(".../intro/member.php?returnUrl=...")만
+        담긴 빈 셸을 반환(확인됨) → "로그인 필요"로 처리한다.
+      - 상품 1개 = <li> > div.item_cont
+          div.item_photo_box a[href="../goods/goods_view.php?goodsNo=..."]
+            img.gd_image_lazy — src는 1x1 data URI 더미, 실제 주소는
+            data-original (lazy-load)
+          div.item_info_cont
+            .item_tit_box strong.item_name → 상품명
+            .item_money_box strong.item_price span → "5,500원"
+            .item_icon_box img[alt] → "구매수량별 차등할인"/"이벤트상품" 등
+      - 상세 링크가 "../goods/..." 상대경로라 검색 URL 기준 urljoin 필요.
+      - 품절 상품(실캡쳐 확인): <li class="item_soldout">, 사진 위
+        strong.item_soldout_bg("SOLD OUT"), .item_icon_box img[alt="품절"]
+    """
+
+    BASE       = "https://www.dspmall.kr"
+    LOGIN_PAGE = "https://www.dspmall.kr/intro/member.php?returnUrl=%2F"
+    LOGIN_URL  = "https://www.dspmall.kr/member/login_ps.php"
+    SEARCH_URL = "https://www.dspmall.kr/goods/goods_search.php"
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+
+        await self._ensure_session()
+
+        # 로그인 폼 페이지 먼저 방문(세션 쿠키 GD5SESSID 발급받기)
+        async with self.session.get(self.LOGIN_PAGE, headers=self._headers) as resp:
+            await resp.text()
+
+        login_data = {
+            "returnUrl": "/",
+            "loginId": username,
+            "loginPwd": password,
+            "mode": "login",
+        }
+        async with self.session.post(
+            self.LOGIN_URL, data=login_data,
+            headers={
+                **self._headers,
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": self.LOGIN_PAGE,
+                "Origin": self.BASE,
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+            },
+        ) as resp:
+            body = await resp.text()
+
+        # 응답이 JSON이면 code/message로 성공·실패 판정(실패 시 code/message 존재)
+        try:
+            data = json.loads(body)
+        except (ValueError, json.JSONDecodeError):
+            data = None
+
+        if isinstance(data, dict) and (data.get("code") or data.get("message")):
+            msg = data.get("message") or f"오류 코드 {data.get('code')}"
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
+
+        # 응답 본문에 로그인 실패 안내 문구가 그대로 담겨 오는 경우 방어
+        if "일치하지 않" in (body or ""):
+            alert_msg = self.extract_alert(body) or "아이디/비밀번호를 확인하세요."
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {alert_msg}")
+
+        if not await self.verify_login():
+            raise LoginError(f"'{self.site_name}' 로그인 실패. ID/비밀번호를 확인하세요.")
+        self.logged_in = True
+
+    async def verify_login(self) -> bool:
+        await self._ensure_session()
+        return len(self.session.cookie_jar.filter_cookies(YarlURL(self.BASE))) > 0
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+
+        search_url = f"{self.SEARCH_URL}?keyword={quote(query)}"
+        async with self.session.get(search_url, headers={
+            **self._headers, "Referer": self.BASE,
+        }) as resp:
+            html = await resp.text()
+
+        # 비로그인 시: location.replace(".../intro/member.php...") 빈 셸 반환
+        if "intro/member.php" in html and "goods_view.php" not in html:
+            raise LoginError(f"'{self.site_name}' 로그인이 필요합니다. ID/비밀번호를 설정하세요.")
+
+        soup = BeautifulSoup(html, "html.parser")
+        products = []
+        seen = set()
+
+        # 상품 1개 = div.item_cont (실캡쳐 확인)
+        for box in soup.select("div.item_cont"):
+            try:
+                link_el = box.select_one('a[href*="goods_view.php?goodsNo="]')
+                name_el = box.select_one(".item_name")
+                price_el = box.select_one(".item_price")
+                if not (link_el and name_el and price_el):
+                    continue
+                href = link_el.get("href", "")
+                m = re.search(r"goodsNo=(\d+)", href)
+                if not m or m.group(1) in seen:
+                    continue
+                seen.add(m.group(1))
+
+                name = self.clean_text(name_el.get_text())
+                price = self.extract_price(price_el.get_text())
+                if not name or price <= 0:
+                    continue
+
+                # 이미지는 lazy-load: src는 data URI 더미, 실제 주소는 data-original
+                img_el = box.select_one(".item_photo_box img")
+                img_src = (img_el.get("data-original") or "") if img_el else ""
+                img_url = urljoin(search_url, img_src) if img_src else None
+
+                # 품절(실캡쳐 확인): 바깥 li.item_soldout, 사진 위
+                # strong.item_soldout_bg("SOLD OUT"), 아이콘 img[alt="품절"]
+                li = box.find_parent("li")
+                soldout = (
+                    (li is not None and "item_soldout" in (li.get("class") or []))
+                    or box.select_one(".item_soldout_bg") is not None
+                    or box.select_one('.item_icon_box img[alt="품절"]') is not None
+                )
+                in_stock = not soldout
+
+                products.append(Product(
+                    name=name, price=price, unit_price=None,
+                    url=urljoin(search_url, href), site_name=self.site_name,
+                    image_url=img_url, in_stock=in_stock,
+                ))
+            except Exception:
+                continue
+
+        # 0건인데 "검색 결과 없음" 안내도 없으면 구조 변경으로 보고 응답 저장
+        if not products and not re.search(
+            r"검색\s*결과가?\s*없|결과가\s*없|상품이\s*없", html):
+            path = self.save_debug("검색결과", html)
+            raise RuntimeError(
+                f"'{self.site_name}' 검색 결과에서 상품 목록을 찾지 못했습니다"
+                f"(사이트 구조 변경 가능) — 진단 파일: {path}")
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
+class PharmPayMallCrawler(BaseCrawler):
+    """
+    팜페이몰 (pharmpaymall.com) 전용 크롤러. — v7.3에서 추가.
+
+    ASP.NET + 자체 'JDINS' 프론트엔드 프레임워크 기반. 루트(/)는 frameset으로
+    /isLogin.aspx(자동로그인 쿠키 확인) → 없으면 /login.aspx(로그인 폼)로
+    이동한다.
+
+    로그인 (실계정 DevTools 캡쳐로 확인됨):
+      - POST /loginChk.json  (form-urlencoded: userid, userpwd — 평문)
+      - 응답: {"returnMapper": {"rtnCode": "OK", "rtnMessage": "",
+               "rtnURL": "/login_confirm.aspx?loginHash=...&userCode=MEM...
+                          &url=/usr/umain/umain.aspx", ...}, "baseMapper": {...}}
+        rtnCode != "OK"면 실패(rtnMessage를 alert, E0001/E0002 등).
+      - JDINS.sendAjaxJson은 rtnURL이 있으면 window.location으로 이동하므로
+        브라우저와 같게 rtnURL을 GET해 로그인 확인 페이지를 거친다.
+
+    검색 (실계정 DevTools 캡쳐로 확인됨, '마스크' 검색):
+      - POST /usr/UPT/UPT001R1.json (form-urlencoded, 값은 JSON 문자열)
+          pageInfo    = {"viewListCnt":14,"viewPageCnt":5}
+          formData    = {"page":"1", ..., "directType":"p", "goodsnm":"<검색어>"}
+          requestsort = (빈 값)
+      - 응답 상품 객체 키: goodsnm(상품명), stand(규격, "1매"),
+        syncodenm(제조사), minprice(가격, 문자열 "180"), stocksum(재고,
+        문자열), img2(상대경로 이미지), pmgcode(상품코드)
+      - 상품 배열을 감싸는 상위 키는 캡쳐에 없어서, 응답에서 goodsnm을 가진
+        dict 배열을 재귀로 찾는다(JDINS 그리드 응답은 보통
+        returnMapper.rtnObject[그리드ID]).
+      - 페이지당 14개(브라우저와 동일) — 최저가를 넓게 보려고 max_results*3개
+        또는 마지막 페이지(14개 미만)까지 page를 올려 가며 요청한다.
+      - 상품별 상세 페이지 GET 주소는 미확인이라 상품 링크는 사이트 홈으로 대체.
+    """
+
+    BASE       = "https://www.pharmpaymall.com"
+    LOGIN_URL  = "https://www.pharmpaymall.com/loginChk.json"
+    SEARCH_URL = "https://www.pharmpaymall.com/usr/UPT/UPT001R1.json"
+    MAIN_URL   = "https://www.pharmpaymall.com/usr/umain/umain.aspx"
+    PAGE_SIZE  = 14
+    MAX_PAGES  = 5
+
+    _AJAX_HEADERS = {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+    }
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+
+        await self._ensure_session()
+
+        # 로그인 폼 페이지 방문(세션 쿠키 발급)
+        async with self.session.get(f"{self.BASE}/login.aspx", headers=self._headers) as resp:
+            await resp.text()
+
+        login_data = {"userid": username, "userpwd": password}
+        async with self.session.post(
+            self.LOGIN_URL, data=login_data,
+            headers={
+                **self._headers, **self._AJAX_HEADERS,
+                "Referer": f"{self.BASE}/login.aspx",
+                "Origin": self.BASE,
+            },
+        ) as resp:
+            body = await resp.text()
+
+        try:
+            data = json.loads(body)
+        except (ValueError, json.JSONDecodeError):
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 서버 응답을 해석할 수 없습니다.")
+
+        rm = data.get("returnMapper") if isinstance(data, dict) else None
+        if not isinstance(rm, dict):
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 응답에 returnMapper가 없습니다.")
+        rtn_code = rm.get("rtnCode")
+        if rtn_code != "OK":
+            msg = rm.get("rtnMessage") or f"오류 코드 {rtn_code}"
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
+
+        # 브라우저처럼 rtnURL(/login_confirm.aspx?loginHash=...)로 이동해 로그인 완료
+        rtn_url = rm.get("rtnURL")
+        if rtn_url:
+            async with self.session.get(
+                urljoin(self.BASE + "/", rtn_url),
+                headers={**self._headers, "Referer": f"{self.BASE}/login.aspx"},
+            ) as resp:
+                await resp.read()
+        self.logged_in = True
+
+    async def verify_login(self) -> bool:
+        return self.logged_in
+
+    @classmethod
+    def _find_items(cls, obj):
+        """응답 JSON에서 goodsnm 키를 가진 dict 배열을 재귀로 찾는다."""
+        if isinstance(obj, list):
+            if obj and all(isinstance(x, dict) for x in obj) and "goodsnm" in obj[0]:
+                return obj
+            for x in obj:
+                found = cls._find_items(x)
+                if found is not None:
+                    return found
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                found = cls._find_items(v)
+                if found is not None:
+                    return found
+        return None
+
+    async def _fetch_page(self, query: str, page: int):
+        form = {
+            "page": str(page), "sortkey": "", "gc2code": "", "gc3code": "",
+            "drugcode": "", "drugfg": "", "url": "", "abcd": "", "gc1code": "",
+            "directType": "p", "smvcode": "", "searchType": "", "syncodenm": "",
+            "goodsnm": query,
+        }
+        payload = {
+            "pageInfo": json.dumps({"viewListCnt": self.PAGE_SIZE, "viewPageCnt": 5},
+                                   separators=(",", ":")),
+            "formData": json.dumps(form, ensure_ascii=False, separators=(",", ":")),
+            "requestsort": "",
+        }
+        async with self.session.post(
+            self.SEARCH_URL, data=payload,
+            headers={
+                **self._headers, **self._AJAX_HEADERS,
+                "Referer": self.MAIN_URL,
+                "Origin": self.BASE,
+            },
+        ) as resp:
+            status = resp.status
+            body = await resp.text()
+
+        try:
+            data = json.loads(body)
+        except (ValueError, json.JSONDecodeError):
+            # 세션 만료 시 JSON 대신 로그인 페이지 HTML이 오는 경우
+            if "login" in body.lower():
+                raise LoginError(f"'{self.site_name}' 로그인이 필요합니다. ID/비밀번호를 설정하세요.")
+            path = self.save_debug("검색응답", body)
+            raise RuntimeError(f"'{self.site_name}' 검색 응답을 해석할 수 없습니다 (HTTP {status}) — 진단 파일: {path}")
+
+        rm = data.get("returnMapper") if isinstance(data, dict) else None
+        if isinstance(rm, dict) and rm.get("rtnCode") not in (None, "", "OK"):
+            msg = rm.get("rtnMessage") or rm.get("rtnCode")
+            raise RuntimeError(f"'{self.site_name}' 검색 오류: {msg}")
+
+        items = self._find_items(data)
+        if items is None:
+            # 결과 0건일 때도 배열 자체가 없을 수 있음 — 구조 확인용으로 저장만
+            self.save_debug("검색응답", body, ext="json")
+            return []
+        return items
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+
+        items = []
+        for page in range(1, self.MAX_PAGES + 1):
+            page_items = await self._fetch_page(query, page)
+            items.extend(page_items)
+            if len(page_items) < self.PAGE_SIZE or len(items) >= max_results * 3:
+                break
+
+        products = []
+        seen = set()
+        for item in items:
+            try:
+                code = item.get("pmgcode") or ""
+                if code and code in seen:
+                    continue
+                seen.add(code)
+
+                name = self.clean_text(item.get("goodsnm") or "")
+                price = self.extract_price(str(item.get("minprice") or ""))
+                if not name or price <= 0:
+                    continue
+                stand = self.clean_text(item.get("stand") or "")
+                maker = self.clean_text(item.get("syncodenm") or "")
+                stock_raw = item.get("stocksum")
+                in_stock = True if stock_raw in (None, "") else self.extract_price(str(stock_raw)) > 0
+                img = item.get("img2") or ""
+
+                products.append(Product(
+                    name=f"{name} ({stand})" if stand else name,
+                    price=price,
+                    unit_price=stand or None,
+                    url=f"{self.BASE}/",
+                    site_name=self.site_name,
+                    image_url=urljoin(self.BASE + "/", img) if img else None,
+                    in_stock=in_stock,
+                    extra_info={"제조사": maker} if maker else {},
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -3155,6 +3546,8 @@ CUSTOM_CRAWLERS = {
     "daewoongtheshop": DaewoongTheShopCrawler,
     "dapmall":         DapMallCrawler,
     "kdshop":          KDShopCrawler,
+    "dspmall":         DspMallCrawler,
+    "pharmpaymall":    PharmPayMallCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -3506,6 +3899,54 @@ KDSHOP_PRESET = {
     "extra_config": {},
 }
 
+DSPMALL_PRESET = {
+    "name": "동성몰",
+    "enabled": True,
+    "builtin": True,
+    "builtin_id": "dspmall",
+    "crawler_type": "dspmall",
+    "base_url": "https://www.dspmall.kr",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "https://www.dspmall.kr/member/login_ps.php",
+        "login_method": "custom",
+        "login_fields": {"loginId": "{username}", "loginPwd": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/goods/goods_search.php?keyword={query}",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
+    },
+    "extra_config": {},
+}
+
+PHARMPAYMALL_PRESET = {
+    "name": "팜페이몰",
+    "enabled": True,
+    "builtin": True,
+    "builtin_id": "pharmpaymall",
+    "crawler_type": "pharmpaymall",
+    "base_url": "https://www.pharmpaymall.com",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "https://www.pharmpaymall.com/loginChk.json",
+        "login_method": "custom",
+        "login_fields": {"userid": "{username}", "userpwd": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/usr/UPT/UPT001R1.json",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
+    },
+    "extra_config": {},
+}
+
 BUILTIN_SITES = [
     BAROPHARM_PRESET,
     UPHARMMALL_PRESET,
@@ -3520,6 +3961,8 @@ BUILTIN_SITES = [
     CUPHARM_PRESET,
     SMARTPHARM_PRESET,
     KDSHOP_PRESET,
+    DSPMALL_PRESET,
+    PHARMPAYMALL_PRESET,
 ]
 
 def create_crawler(sc):

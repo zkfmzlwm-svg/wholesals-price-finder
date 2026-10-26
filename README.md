@@ -3,13 +3,13 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v7.1
+## 현재 버전: v7.3
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
 - 사이트 추가 → 소수점 버전업 (예: 1.0 → 1.1)
 
-## 내장 지원 사이트 (13개)
+## 내장 지원 사이트 (15개)
 | 사이트 | 기술 스택 | 로그인 방식 |
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
@@ -25,11 +25,14 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
 | 광동몰 | Java 서버 렌더링 (로그인/검색/재고 확인됨) | 폼 POST (평문, xpw 필드) |
+| 동성몰 | NHN Commerce(고도몰5, moment 스킨) (검색/목록 파싱 실캡쳐 확인됨) | AJAX 폼 POST (평문) |
+| 팜페이몰 | ASP.NET + 자체 JDINS 프레임워크 (로그인/검색 실캡쳐 확인됨) | AJAX POST /loginChk.json (평문 userid/userpwd) |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
 > 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장
-> 사이트 전부 자기 자신만의 크롤러 클래스를 가지며, 로그인/검색 스펙도 모두
-> DevTools 실캡쳐로 확인되어 있습니다.
+> 사이트 전부 자기 자신만의 크롤러 클래스를 가지며, 로그인/검색 스펙도
+> DevTools 실캡쳐로 확인되어 있습니다. 단, v7.2에서 추가된 동성몰의 로그인은
+> 실캡쳐가 아니라 공개 로그인 폼/JS로 확인했습니다(각 크롤러 docstring 참고).
 >
 > 대웅더샵은 로그인 도메인(www.shop.co.kr)과 서비스 도메인(the.shop.co.kr)이
 > 분리된 SSO 구조입니다: `POST https://www.shop.co.kr/front/api/auth/mimsLogin`
@@ -158,7 +161,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v7.1.py
+python wholesale_price_finder_v7.3.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -188,10 +191,22 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v7.1.py
+pyinstaller --onefile --windowed wholesale_price_finder_v7.3.py
 ```
 
 ## 변경 이력
+- v7.3 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
+  로그인(POST `/loginChk.json`, 필드 `userid`/`userpwd`, 응답 `returnMapper.rtnCode`
+  == "OK" 성공 → `rtnURL` `/login_confirm.aspx` 이동)과 검색(POST
+  `/usr/UPT/UPT001R1.json`, form 값 `pageInfo`/`formData`가 JSON 문자열, 응답
+  `goodsnm`/`stand`/`syncodenm`/`minprice`/`stocksum`)은 실계정 DevTools 캡쳐로 확인.
+  상품 상세 GET 주소는 미확인이라 링크는 사이트 홈(내장 15개).
+- v7.2 — 사이트 추가: 동성몰(dspmall.kr). NHN Commerce(고도몰5, moment 스킨) 기반
+  B2B 발주몰. 로그인(AJAX POST `/member/login_ps.php`, 필드 `loginId`/`loginPwd`,
+  실패 시 응답 JSON에 `code`/`message`)은 공개 폼·JS로 확인. 검색(GET
+  `/goods/goods_search.php?keyword=`)과 결과 구조(`div.item_cont` > `.item_name`/
+  `.item_price`, 이미지는 lazy-load라 `data-original`)는 실계정 DevTools 캡쳐로
+  확인. 품절은 `li.item_soldout`/`.item_soldout_bg`/아이콘 `alt="품절"`로 판정(내장 14개).
 - v7.1 — 광동몰(kdshop.co.kr) 추가(전용 크롤러 `KDShopCrawler`). 로그인·검색·재고
   조회 스펙은 실계정 DevTools 캡처로 확인.
 - v7.0 — 사이트 관리 탭의 "사이트 추가" 버튼 제거(데스크탑·웹). 사이트마다 로그인·
