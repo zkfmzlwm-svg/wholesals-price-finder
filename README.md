@@ -3,13 +3,13 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v7.0
+## 현재 버전: v7.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
 - 사이트 추가 → 소수점 버전업 (예: 1.0 → 1.1)
 
-## 내장 지원 사이트 (12개)
+## 내장 지원 사이트 (13개)
 | 사이트 | 기술 스택 | 로그인 방식 |
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
@@ -24,9 +24,10 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 | 동아DAPmall | 개별 크롤러 (로그인/검색/파싱 전 항목 검증 완료) | 폼 POST (평문, userId/userPw) |
 | 서울약사신협 | Classic ASP (로그인/검색 확인됨) | 폼 POST (평문, 암호화 여부 미확인) |
 | 스마트팜 | Classic ASP (로그인/검색/목록 파싱 확인됨) | 폼 POST (평문, 암호화 없음) |
+| 광동몰 | Java 서버 렌더링 (로그인/검색/재고 확인됨) | 폼 POST (평문, xpw 필드) |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
-> 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장 12개
+> 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장
 > 사이트 전부 자기 자신만의 크롤러 클래스를 가지며, 로그인/검색 스펙도 모두
 > DevTools 실캡쳐로 확인되어 있습니다.
 >
@@ -127,6 +128,17 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 > 검색결과 한글 깨짐으로 발견), 이제는 cp949로 고정하지 않고 UTF-8을 먼저
 > 시도한 뒤 실패할 때만 cp949로 폴백합니다.
 
+> 광동몰(광동제약 약국전용 폐쇄몰)은 v7.1에서 실계정 DevTools 캡처로 확인한 스펙으로
+> 전용 크롤러(`KDShopCrawler`)가 추가됐습니다. 로그인은 `POST /member/login_act.do`
+> (필드 `id`/`xpw`, 평문 — 페이지 JS가 비밀번호를 `pw`에서 `xpw`로 옮겨 보냄)이며,
+> 로그인 화면의 Google reCAPTCHA는 클라이언트 검사뿐이라 실제 제출값에
+> `g-recaptcha-response`가 없습니다(서버 미검증). 성공 시 본문은
+> `parent.location.href='/main/index.do'` 스크립트이고 `MEMBER_TOKEN`(JWT) 쿠키가
+> 발급됩니다. 검색은 `GET /goods/category.do?stype=all&sword={query}`(비로그인이면
+> 302)이고, 상품은 `li.item[gno]` 안의 `input#gName{gno}`/`input#gPrice{gno}` 값으로
+> 파싱합니다. 목록엔 재고가 없어 상세 `GET /goods/list_detail.do?gno=`의 업체별
+> `tr[data-stock]`으로 품절을 판정합니다(검색당 최대 10건 추가 요청).
+
 ## 주요 기능
 - 🔍 여러 사이트 동시 검색 및 가격 비교
 - 🔒 비밀번호 AES(Fernet) 암호화 저장
@@ -146,7 +158,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v7.0.py
+python wholesale_price_finder_v7.1.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -176,10 +188,12 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v7.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v7.1.py
 ```
 
 ## 변경 이력
+- v7.1 — 광동몰(kdshop.co.kr) 추가(전용 크롤러 `KDShopCrawler`). 로그인·검색·재고
+  조회 스펙은 실계정 DevTools 캡처로 확인.
 - v7.0 — 사이트 관리 탭의 "사이트 추가" 버튼 제거(데스크탑·웹). 사이트마다 로그인·
   크롤링 방식이 달라 사이트는 내장 크롤러로만 추가. 수정/로그인 설정/삭제는 유지.
 - v6.0 — 웹 버전 추가(`web/server.py` + `web/static/`). 데스크탑 앱의 크롤러·설정·

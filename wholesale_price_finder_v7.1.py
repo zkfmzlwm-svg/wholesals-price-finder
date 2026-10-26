@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v7.0 — Windows GUI
+도매 최저가 비교 프로그램 v7.1 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.1.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v7.1 — 광동몰(kdshop.co.kr) 추가 — 전용 크롤러 KDShopCrawler. 실계정 DevTools
+         캡처로 확인한 스펙: 로그인 POST /member/login_act.do(id, xpw 평문 — 로그인
+         화면의 reCAPTCHA는 클라이언트 검사뿐이라 서버 검증 없음, 성공 시
+         MEMBER_TOKEN 쿠키 발급), 검색 GET /goods/category.do?stype=all&sword=,
+         재고는 상세 GET /goods/list_detail.do의 업체별 data-stock으로 확인.
   v7.0 — 사이트 관리 탭의 "사이트 추가" 버튼 제거(데스크탑·웹 모두, 웹 POST /api/sites
          API도 제거). 사이트마다 로그인·크롤링 방식이 달라 수동 추가가 의미 없으므로
          사이트는 코드에 내장 크롤러로만 추가. 기존 사이트 수정/로그인 설정/삭제는 유지.
@@ -261,7 +266,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "7.0"
+__version__ = "7.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -400,6 +405,7 @@ SITE_SEARCH_PATTERNS = {
     "한미몰":  "https://www.hmpmall.co.kr/search/searchTwoStepList.do?productName={query}",
     "플랫팜":  "https://www.platpharm.co.kr/search?qs={query}",
     "새로팜":  "https://www.saeropharm.com/w/product/searchProductList.do?mainSchValue={query}",
+    "광동몰":  "https://kdshop.co.kr/goods/category.do?stype=all&sword={query}",
     "서울약사신협": "https://www.cupharm.kr/order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&page=1&s_w12_flag=P&search_flg=ok&w14_user_type=1&search_type=2",
 }
 
@@ -2981,6 +2987,160 @@ class DapMallCrawler(BaseCrawler):
         return products[:max_results]
 
 
+class KDShopCrawler(BaseCrawler):
+    """
+    광동몰 (kdshop.co.kr) 전용 크롤러 — 광동제약 운영 약국전용 폐쇄몰 (v7.1).
+
+    로그인 (실계정 DevTools 캡처로 확인): POST /member/login_act.do — 일반 form POST
+      - 페이지 JS(validSubmit)가 비밀번호를 pw → xpw로 옮기고 pw는 비운 채 hidden
+        iframe(frmProc)으로 제출. 필드: mode(빈값=회원), xpw, redirect, snsType,
+        snsId, email, id, emailYn=Y, pw(빈값), isSaveId. 평문 전송.
+      - 로그인 화면에 Google reCAPTCHA가 있지만 클라이언트 검사(checkRecaptcha)뿐,
+        실제 제출 payload에 g-recaptcha-response가 없음 → 서버는 검증하지 않음.
+      - 성공: HTTP 200, 본문 <script>parent.location.href='/main/index.do';</script>,
+        Set-Cookie MEMBER_TOKEN(JWT — 비로그인 상태에선 빈 값으로 발급됨), SVID(아이디).
+      - 실패 응답 형식은 미확인 — alert 문구가 있으면 그대로 표시.
+
+    검색 (확인됨): GET /goods/category.do?stype=all&sword={query}&...
+      - 비로그인 세션이면 302(로그인 페이지로) → 세션 없음 오류로 표시.
+      - 상품: li.item[gno] 안의 input#gName{gno}(상품명), input#gPrice{gno}(가격),
+        div.summary("제조사 <span class=line> (규격)"), input#gImgFullpath{gno}(이미지).
+      - 목록에는 재고가 없어 상세 GET /goods/list_detail.do?gno={gno}&... 의 업체별 행
+        tr[data-goodsno](data-stock, th #dealerName)로 재고·공급업체를 확인.
+    """
+
+    BASE        = "https://kdshop.co.kr"
+    LOGIN_PAGE  = "https://kdshop.co.kr/member/login.do"
+    LOGIN_URL   = "https://kdshop.co.kr/member/login_act.do"
+    SEARCH_URL  = "https://kdshop.co.kr/goods/category.do"
+    DETAIL_URL  = "https://kdshop.co.kr/goods/list_detail.do"
+
+    def _member_token(self) -> str:
+        for c in self.session.cookie_jar:
+            if c.key == "MEMBER_TOKEN":
+                return c.value
+        return ""
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+
+        await self._ensure_session()
+        async with self.session.get(self.LOGIN_PAGE) as resp:
+            await resp.text()
+
+        data = {
+            "mode": "", "xpw": password, "redirect": "", "snsType": "", "snsId": "",
+            "email": "", "id": username, "emailYn": "Y", "pw": "", "isSaveId": "T",
+        }
+        async with self.session.post(
+            self.LOGIN_URL, data=data,
+            headers={**self._headers, "Referer": self.LOGIN_PAGE, "Origin": self.BASE},
+        ) as resp:
+            status = resp.status
+            body = await resp.text()
+
+        alert = self.extract_alert(body)
+        if alert:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {alert}")
+        if status != 200 or not self._member_token():
+            path = self.save_debug("login", body)
+            raise LoginError(f"'{self.site_name}' 로그인 실패 (HTTP {status}) — 진단 파일: {path}")
+        self.logged_in = True
+
+    async def verify_login(self) -> bool:
+        return self.logged_in
+
+    async def _fetch_stock(self, gno: str, sem: asyncio.Semaphore):
+        """상세 패널에서 업체별 재고 조회 → (재고있음 여부, 공급업체명). 실패 시 None."""
+        url = f"{self.DETAIL_URL}?gno={gno}&cosdno=0&fdealerno=0&contractChk="
+        try:
+            async with sem:
+                async with self.session.get(url, headers={**self._headers, "Referer": self.SEARCH_URL}) as resp:
+                    if resp.status != 200:
+                        return None
+                    html = await resp.text()
+            rows = BeautifulSoup(html, "html.parser").select("tr[data-goodsno]")
+            if not rows:
+                return None
+            stocks = []
+            for tr in rows:
+                dealer_el = tr.select_one("#dealerName")
+                stocks.append((int(tr.get("data-stock") or 0),
+                               self.clean_text(dealer_el.get_text()) if dealer_el else ""))
+            best = max(stocks, key=lambda s: s[0])
+            return best[0] > 0, best[1]
+        except Exception:
+            return None
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+        search_url = (f"{self.SEARCH_URL}?stype=all&sword={quote(query)}"
+                      f"&keywordLinkurl=&keywordIdx=&eventidx=12701")
+        async with self.session.get(search_url, allow_redirects=False,
+                                    headers={**self._headers, "Referer": f"{self.BASE}/main/index.do"}) as resp:
+            if resp.status in (301, 302, 303, 307):
+                raise LoginError(f"'{self.site_name}' 로그인 세션 없음 (검색 페이지가 로그인 화면으로 이동)")
+            if resp.status != 200:
+                raise RuntimeError(f"'{self.site_name}' 검색 실패: HTTP {resp.status}")
+            html = await resp.text()
+
+        soup = BeautifulSoup(html, "html.parser")
+        items = soup.select("li.item[gno]")
+        products = []
+        for li in items:
+            try:
+                gno = li.get("gno", "")
+                name_el = li.select_one(f"#gName{gno}")
+                price_el = li.select_one(f"#gPrice{gno}")
+                name = self.clean_text(name_el.get("value", "")) if name_el else ""
+                price = self.extract_price(price_el.get("value", "")) if price_el else 0
+                if not price:
+                    strong = li.select_one(".price strong")
+                    price = self.extract_price(strong.get_text()) if strong else 0
+                if not name or price <= 0:
+                    continue
+                extra = {}
+                summary = li.select_one("div.summary")
+                if summary:
+                    parts = [t.strip() for t in summary.get_text("|").split("|") if t.strip()]
+                    if parts:
+                        extra["제조사"] = parts[0]
+                    if len(parts) > 1:
+                        extra["규격"] = " ".join(parts[1:])
+                img_el = li.select_one(f"#gImgFullpath{gno}")
+                products.append(Product(
+                    name=name, price=price, unit_price=None, url=search_url,
+                    site_name=self.site_name,
+                    image_url=(img_el.get("value") or None) if img_el else None,
+                    extra_info={**extra, "gno": gno},
+                ))
+            except Exception:
+                continue
+
+        if not products:
+            if not items:
+                self.save_debug("search", html)  # 결과 0건 또는 구조 변경 — 분석용
+            return []
+
+        products.sort(key=lambda p: p.price)
+        products = products[:max_results]
+
+        sem = asyncio.Semaphore(5)
+        stocks = await asyncio.gather(*[self._fetch_stock(p.extra_info["gno"], sem) for p in products])
+        for p, st in zip(products, stocks):
+            p.extra_info.pop("gno", None)
+            if st is not None:
+                p.in_stock = st[0]
+                if st[1]:
+                    p.extra_info["공급업체"] = st[1]
+        return products
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -2994,6 +3154,7 @@ CUSTOM_CRAWLERS = {
     "cupharm":        CupharmCrawler,
     "daewoongtheshop": DaewoongTheShopCrawler,
     "dapmall":         DapMallCrawler,
+    "kdshop":          KDShopCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -3319,6 +3480,32 @@ SMARTPHARM_PRESET = {
     "extra_config": {},
 }
 
+# ── 광동몰: v7.1에서 실계정 DevTools 캡처로 로그인/검색/상세(재고) 구조 확인.
+# 상세는 KDShopCrawler 클래스 docstring 참고.
+KDSHOP_PRESET = {
+    "name": "광동몰",
+    "enabled": True,
+    "builtin": True,
+    "builtin_id": "kdshop",
+    "crawler_type": "kdshop",
+    "base_url": "https://kdshop.co.kr",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "https://kdshop.co.kr/member/login_act.do",
+        "login_method": "custom",
+        "login_fields": {"id": "{username}", "xpw": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/goods/category.do?stype=all&sword={query}",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
+    },
+    "extra_config": {},
+}
+
 BUILTIN_SITES = [
     BAROPHARM_PRESET,
     UPHARMMALL_PRESET,
@@ -3332,6 +3519,7 @@ BUILTIN_SITES = [
     DAPMALL_PRESET,
     CUPHARM_PRESET,
     SMARTPHARM_PRESET,
+    KDSHOP_PRESET,
 ]
 
 def create_crawler(sc):
