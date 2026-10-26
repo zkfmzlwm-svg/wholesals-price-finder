@@ -78,7 +78,6 @@
   <!-- ─────── 사이트 관리 ─────── -->
   <section class="panel" id="tab-sites">
     <div class="toolbar">
-      <button class="btn green" id="site-add">➕ 사이트 추가</button>
       <button class="btn flat" id="site-edit">✏️ 수정</button>
       <button class="btn flat" id="site-cred">🔑 로그인 설정</button>
       <button class="btn flat" id="site-test">🔌 로그인 테스트</button>
@@ -136,10 +135,10 @@
   <button data-act="open">🔍 이 상품 사이트에서 검색</button>
 </div>
 
-<!-- 사이트 추가/수정 -->
+<!-- 사이트 수정 -->
 <dialog id="site-dlg">
   <form method="dialog" id="site-form">
-    <h2 id="site-dlg-title">사이트 추가</h2>
+    <h2 id="site-dlg-title">사이트 수정</h2>
     <div class="form-grid">
       <label>사이트 이름</label><input name="name" required>
       <label>사이트 URL</label><input name="base_url" required>

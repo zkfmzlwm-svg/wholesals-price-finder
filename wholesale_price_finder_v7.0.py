@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v6.0 — Windows GUI
+도매 최저가 비교 프로그램 v7.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v6.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,9 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v7.0 — 사이트 관리 탭의 "사이트 추가" 버튼 제거(데스크탑·웹 모두, 웹 POST /api/sites
+         API도 제거). 사이트마다 로그인·크롤링 방식이 달라 수동 추가가 의미 없으므로
+         사이트는 코드에 내장 크롤러로만 추가. 기존 사이트 수정/로그인 설정/삭제는 유지.
   v6.0 — 웹 버전 추가(web/server.py). 이 파일의 크롤러·설정·암호화 코드를 그대로
          불러와 브라우저에서 검색/즐겨찾기/사이트 관리/로그인 테스트/메모장/설정을
          전부 사용 가능. 같은 config.json·memo.dat·암호화 키를 공유하므로 데스크탑
@@ -258,7 +261,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "6.0"
+__version__ = "7.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -3622,7 +3625,6 @@ class App(tk.Tk):
         # 도구 버튼
         toolbar = tk.Frame(tab, bg=self.BG)
         toolbar.pack(fill="x", padx=20, pady=(15, 10))
-        ttk.Button(toolbar, text="➕ 사이트 추가", style="Green.TButton", command=self._add_site).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="✏️ 수정", style="Flat.TButton", command=self._edit_site).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="🔑 로그인 설정", style="Flat.TButton", command=self._edit_credentials).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="🔌 로그인 테스트", style="Flat.TButton", command=self._test_login).pack(side="left", padx=(0, 8))
@@ -4027,9 +4029,6 @@ class App(tk.Tk):
             messagebox.showinfo("알림", "사이트를 선택하세요")
             return None
         return self.site_tree.index(sel[0])
-
-    def _add_site(self):
-        SiteDialog(self, "사이트 추가")
 
     def _edit_site(self):
         idx = self._get_selected_site_idx()

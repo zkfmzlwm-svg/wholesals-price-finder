@@ -401,7 +401,6 @@ function selectedSite() {
   return S.selSite;
 }
 
-$("#site-add").addEventListener("click", () => openSiteDialog(null));
 $("#site-edit").addEventListener("click", () => { const i = selectedSite(); if (i != null) openSiteDialog(i); });
 $("#site-cred").addEventListener("click", () => { const i = selectedSite(); if (i != null) openCredDialog(i); });
 $("#site-delete").addEventListener("click", async () => {
@@ -441,13 +440,12 @@ $("#site-demo").addEventListener("click", async () => {
   } catch (err) { msg("오류", err.message); }
 });
 
-// ── 사이트 추가/수정 다이얼로그 ──
+// ── 사이트 수정 다이얼로그 ──
 const siteDlg = $("#site-dlg"), siteForm = $("#site-form");
 let siteEditIdx = null;
 function openSiteDialog(idx) {
   siteEditIdx = idx;
   const s = idx != null ? S.sites[idx] : null;
-  $("#site-dlg-title").textContent = s ? "사이트 수정" : "사이트 추가";
   const sel = siteForm.crawler_type;
   sel.innerHTML = S.info.crawler_types.map((t) => `<option>${esc(t)}</option>`).join("");
   const f = siteForm.elements;
@@ -482,8 +480,7 @@ siteForm.addEventListener("submit", async (e) => {
   };
   if (!body.name || !body.base_url) return msg("알림", "사이트 이름과 URL은 필수입니다");
   try {
-    if (siteEditIdx != null) await api("PUT", `/api/sites/${siteEditIdx}`, body);
-    else await api("POST", "/api/sites", body);
+    await api("PUT", `/api/sites/${siteEditIdx}`, body);
     siteDlg.close();
     await loadState();
   } catch (err) { msg("오류", err.message); }

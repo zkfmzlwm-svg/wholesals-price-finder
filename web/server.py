@@ -293,17 +293,6 @@ def build_site(form: dict, old: dict = None) -> dict:
         site["enabled"] = bool(form["enabled"])
     return site
 
-@routes.post("/api/sites")
-async def api_add_site(request):
-    form = await request.json()
-    if not (form.get("name") or "").strip() or not (form.get("base_url") or "").strip():
-        return bad_request("사이트 이름과 URL은 필수입니다")
-    async with _config_lock:
-        config = core.load_config()
-        config.setdefault("sites", []).append(build_site(form))
-        core.save_config(config)
-    return web.json_response({"ok": True})
-
 @routes.put("/api/sites/{idx}")
 async def api_edit_site(request):
     form = await request.json()
