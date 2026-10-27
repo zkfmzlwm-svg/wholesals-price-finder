@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v8.1 — Windows GUI
+도매 최저가 비교 프로그램 v9.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v8.1.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v9.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,34 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v9.0 — 결과창 이미지 개선 (서울약사신협·스마트팜·플랫팜·팜스트리트·광동몰·동성몰
+         이미지 미표시 신고 대응).
+         - 이미지를 받을 때 그 사이트 검색 세션의 로그인 쿠키를 함께 보냄(로그인해야
+           보이는 이미지 대응). 쿠키는 SearchResult.img_cookies로만 전달되며 웹 API
+           응답·진단 파일엔 값이 나가지 않음(진단 파일엔 쿠키 이름만).
+         - 이미지 주소 처리 공통화: BaseCrawler.pick_img_src(lazy-load 속성
+           data-original/data-src/ec-data-src 우선, data URI·로딩 gif·no36/no_54
+           플레이스홀더 제외), abs_img_url("//host"·"/a"·"../a" 모두 urljoin),
+           first_img_url(아이콘·버튼 img 건너뜀). search_site에서 남은 상대 주소도
+           상품 주소 기준 절대 주소로 바꿈(v8은 http로 시작하지 않으면 버렸음).
+         - 사이트별:
+           · 팜스트리트: 이미지가 "//image.pharm-street.com/..." 형태(공개 페이지
+             실측)인데 "/"로 시작한다고 BASE를 붙여 "https://www.pharm-street.com//
+             image..."로 깨뜨렸음(실측: 깨진 주소 302 HTML, 정상 주소 200 이미지).
+             dl 안에 img가 없으면 상품 하나만 감싼 부모에서 찾음.
+           · 플랫팜: 이미지 호스트를 api.platpharm.co.kr/images/(404)에서
+             cdn.platpharm.co.kr로 변경 — 사이트 JS(NEXT_PUBLIC_CDN_URL||
+             "https://cdn.platpharm.co.kr", 이미지 = CDN + "/" + 경로)로 확인.
+           · 광동몰: input#gImgFullpath는 사이트 JS상 분석 태그용 값(imgPath + "/" +
+             IMG — 이미지 없으면 "/"로 끝남, 상대 경로 가능)이라 화면 썸네일 img를
+             우선 사용하고 hidden 값은 보조로만.
+           · 스마트팜: 목록 페이지 기준 상대 주소("../")도 처리, 아이콘 img 건너뜀.
+           · 동성몰: lazy-load 속성 공통 처리 + 쿠키 전달.
+           · 서울약사신협: 목록 행에 img가 있으면 사용(행 구조 미확인).
+         - 진단: 이미지가 안 보이는 사이트를 상태줄에 사유와 함께 표시(예: "팜스트리트
+           5/5(HTTP 302)", "주소 없음", "이미지 아님(text/html)", "시간 초과")하고,
+           debug/이미지진단_*.txt에 상품별 주소·사유와 첫 상품 원본(목록 HTML/JSON)을
+           저장 — 로그인 후에만 보이는 목록 구조를 확인해 사이트별로 보완하기 위함.
   v8.1 — 팜페이몰: 결과가 있는 제품도 '오류'로 뜨던 문제 수정. 검색 응답의
          returnMapper.rtnCode가 "OK"가 아니면 전부 오류로 처리했는데, 사이트
          JS(Jdins.sendAjaxJson)는 rtnCode=="ERR"만 오류로 보고 성공 코드는 API마다
@@ -315,7 +343,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "8.1"
+__version__ = "9.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -442,6 +470,9 @@ class SearchResult:
     searched_at: str = ""
     error: Optional[str] = None
     elapsed_sec: float = 0.0
+    # 결과창 이미지용 (v9.0): 검색 세션 쿠키(Morsel 목록)와 첫 상품 원본(진단용)
+    img_cookies: list = field(default_factory=list, repr=False)
+    img_sample: str = field(default="", repr=False)
     def __post_init__(self):
         if not self.searched_at:
             self.searched_at = datetime.now().isoformat()
@@ -611,6 +642,7 @@ class BaseCrawler(ABC):
         self.session: Optional[aiohttp.ClientSession] = None
         self.logged_in = False
         self._csrf_token = None
+        self.img_sample = ""  # 첫 상품 원본 HTML/JSON — 이미지 진단 파일용 (v9.0)
         self._headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
             "Accept-Language": "ko-KR,ko;q=0.9",
@@ -715,6 +747,53 @@ class BaseCrawler(ABC):
             return str(path)
         except Exception:
             return "(저장 실패)"
+
+    # ── 상품 이미지 (v9.0) ──
+    # lazy-load 사이트는 src에 더미(data URI·로딩 gif)를 두고 실제 주소를 아래 속성에 둠
+    LAZY_IMG_ATTRS = ("data-original", "data-src", "ec-data-src", "data-lazy-src", "data-lazy", "src")
+    PLACEHOLDER_IMG_RE = re.compile(
+        r"(^data:|blank\.|spacer\.|img_loading|ajax_loader|/no_?\d+\.gif|no_?image|noimg|1x1\.)", re.I)
+
+    @classmethod
+    def pick_img_src(cls, img_el) -> str:
+        """img 태그에서 실제 이미지 주소(상대 주소 그대로)를 고름. 더미/플레이스홀더면 ""."""
+        if img_el is None:
+            return ""
+        for attr in cls.LAZY_IMG_ATTRS:
+            v = (img_el.get(attr) or "").strip()
+            if v and not cls.PLACEHOLDER_IMG_RE.search(v):
+                return v
+        return ""
+
+    @classmethod
+    def abs_img_url(cls, src, page_url: str) -> Optional[str]:
+        """이미지 주소를 절대 주소로. "//host/a.jpg"·"/a.jpg"·"../a.jpg" 모두 처리.
+        (v8까지 일부 크롤러가 "/"로 시작하면 사이트 주소를 그냥 붙여 "//host/..."를
+        "https://사이트//host/..."로 깨뜨렸음 — 팜스트리트 실측: 깨진 주소 302 HTML)"""
+        src = (src or "").strip()
+        if not src or cls.PLACEHOLDER_IMG_RE.search(src) or src.endswith("/"):
+            return None
+        if src.startswith("//"):
+            return "https:" + src
+        return urljoin(page_url, src)
+
+    ICON_IMG_RE = re.compile(r"(icon|ico_|btn|bullet|arrow|badge)[^/]*$", re.I)
+
+    @classmethod
+    def first_img_url(cls, el, page_url: str) -> Optional[str]:
+        """요소 안 img 중 아이콘·버튼·더미를 건너뛴 첫 상품 이미지의 절대 주소"""
+        for img_el in el.select("img"):
+            src = cls.pick_img_src(img_el)
+            if src and not cls.ICON_IMG_RE.search(src.split("?")[0]):
+                url = cls.abs_img_url(src, page_url)
+                if url:
+                    return url
+        return None
+
+    def note_img_sample(self, raw):
+        """첫 상품 원본을 기억 — 이미지가 안 보일 때 진단 파일에 넣어 구조 확인용"""
+        if not self.img_sample and raw is not None:
+            self.img_sample = (raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False))[:4000]
 
     def full_url(self, path):
         if not path: return self.base_url
@@ -1315,7 +1394,9 @@ class PlatPharmCrawler(BaseCrawler):
     LOGIN_URL   = "https://www.platpharm.co.kr/api/auth/callback/credentials"
     SESSION_URL = "https://www.platpharm.co.kr/api/auth/session"
     SEARCH_URL  = "https://api.platpharm.co.kr/v1/customers/search"
-    IMG_BASE    = "https://api.platpharm.co.kr/images/"
+    # v9.0: 사이트 JS(모듈 40910 L4 = NEXT_PUBLIC_CDN_URL||"https://cdn.platpharm.co.kr",
+    # 이미지 = L4 + "/" + 경로, 없으면 로고)로 확인. 기존 api.../images/는 404.
+    IMG_BASE    = "https://cdn.platpharm.co.kr/"
 
     def __init__(self, site_config: dict):
         super().__init__(site_config)
@@ -1416,7 +1497,8 @@ class PlatPharmCrawler(BaseCrawler):
                 # 규격을 이름에 포함
                 display_name = f"{name} {std}" if std else name
 
-                img_url = f"{self.IMG_BASE}{thumb}" if thumb else None
+                img_url = self.abs_img_url(thumb, self.IMG_BASE) if thumb else None
+                self.note_img_sample(item)
 
                 extra = {}
                 if vendor:
@@ -2224,12 +2306,15 @@ class PharmStreetCrawler(BaseCrawler):
                         maker = txt
                         break
 
-                # 이미지
+                # 이미지 (v9.0): 사이트 이미지는 "//image.pharm-street.com/..." 형태(로그인
+                # 페이지 실측) — 예전 코드는 "/"로 시작한다고 BASE를 붙여 주소가 깨졌음.
+                # dl 안에 img가 없으면 상품 하나만 감싼 부모(썸네일 영역)에서 찾음.
                 img_el = dl.select_one("img")
-                img_url = None
-                if img_el:
-                    src = img_el.get("src", "")
-                    img_url = f"{self.BASE}{src}" if src.startswith("/") else src
+                parent = dl.parent
+                if img_el is None and parent is not None and len(parent.find_all("dl")) == 1:
+                    img_el = parent.select_one("img")
+                img_url = self.abs_img_url(self.pick_img_src(img_el), search_url)
+                self.note_img_sample(str(parent if parent is not None else dl))
 
                 extra = {}
                 if maker:
@@ -2459,12 +2544,10 @@ class SmartPharmCrawler(BaseCrawler):
                 m = re.search(r"Key=([A-Za-z0-9]+)", onclick)
                 prod_url = f"{self.BASE}/Goods/Goods_View.asp?Key={m.group(1)}&cmp=" if m else search_url
 
-                img_el = row.select_one("img")
-                img_url = None
-                if img_el:
-                    src = img_el.get("src", "")
-                    if src and "no36.gif" not in src:
-                        img_url = f"{self.BASE}{src}" if src.startswith("/") else src
+                # 이미지 (v9.0): "../FileFolder/..."처럼 목록 페이지 기준 상대 주소도 있을 수
+                # 있어 페이지 주소로 urljoin. 플레이스홀더(no36.gif)는 abs_img_url이 거름.
+                img_url = self.first_img_url(row, search_url)
+                self.note_img_sample(str(row))
 
                 display_name = f"{name} ({spec})" if spec else name
 
@@ -2610,6 +2693,11 @@ class CupharmCrawler(BaseCrawler):
                 price = int(m.group("price"))
                 stock = int(m.group("stock"))
 
+                # 이미지 (v9.0): 목록 행 구조상 이미지 칸은 미확인 — 행에 img가 있으면 사용,
+                # 없으면 진단 파일의 행 샘플로 구조 확인 후 보완
+                img_url = self.first_img_url(tr, search_url)
+                self.note_img_sample(str(tr))
+
                 extra = {"제조사": maker} if maker else {}
                 if insurance_code:
                     extra["보험코드"] = insurance_code
@@ -2620,6 +2708,7 @@ class CupharmCrawler(BaseCrawler):
                     unit_price=None,
                     url=search_url,
                     site_name=self.site_name,
+                    image_url=img_url,
                     in_stock=stock > 0,
                     extra_info=extra,
                 ))
@@ -3144,11 +3233,18 @@ class KDShopCrawler(BaseCrawler):
                         extra["제조사"] = parts[0]
                     if len(parts) > 1:
                         extra["규격"] = " ".join(parts[1:])
-                img_el = li.select_one(f"#gImgFullpath{gno}")
+                # 이미지 (v9.0): input#gImgFullpath는 사이트 JS상 분석 태그용 값(imgPath +
+                # "/" + IMG, 이미지 없으면 "imgPath/"로 끝남)이라 상대 경로·빈 경로일 수
+                # 있음. 화면에 보이는 썸네일 img를 먼저 쓰고, 없을 때만 hidden 값 사용.
+                img_url = self.first_img_url(li, search_url)
+                hidden = li.select_one(f"#gImgFullpath{gno}")
+                if not img_url and hidden:
+                    img_url = self.abs_img_url(hidden.get("value"), search_url)
+                self.note_img_sample(str(li))
                 products.append(Product(
                     name=name, price=price, unit_price=None, url=search_url,
                     site_name=self.site_name,
-                    image_url=(img_el.get("value") or None) if img_el else None,
+                    image_url=img_url,
                     extra_info={**extra, "gno": gno},
                 ))
             except Exception:
@@ -3308,9 +3404,9 @@ class DspMallCrawler(BaseCrawler):
                     continue
 
                 # 이미지는 lazy-load: src는 data URI 더미, 실제 주소는 data-original
-                img_el = box.select_one(".item_photo_box img")
-                img_src = (img_el.get("data-original") or "") if img_el else ""
-                img_url = urljoin(search_url, img_src) if img_src else None
+                img_el = box.select_one(".item_photo_box img") or box.select_one("img")
+                img_url = self.abs_img_url(self.pick_img_src(img_el), search_url)
+                self.note_img_sample(str(box))
 
                 # 품절(실캡쳐 확인): 바깥 li.item_soldout, 사진 위
                 # strong.item_soldout_bg("SOLD OUT"), 아이콘 img[alt="품절"]
@@ -4068,7 +4164,14 @@ async def search_site(sc, query, max_results):
         if has_username:
             await crawler.login()
         products = await crawler.search(query, max_results)
-        return SearchResult(sc["name"], query, products, elapsed_sec=round(time.time()-start, 2))
+        # 상대 주소 이미지를 상품 주소(없으면 사이트 주소) 기준 절대 주소로 (v9.0)
+        for p in products:
+            if p.image_url and not p.image_url.startswith("http"):
+                base = p.url if (p.url or "").startswith("http") else (crawler.base_url + "/")
+                p.image_url = BaseCrawler.abs_img_url(p.image_url, base)
+        cookies = [m for m in crawler.session.cookie_jar] if crawler.session else []
+        return SearchResult(sc["name"], query, products, elapsed_sec=round(time.time()-start, 2),
+                            img_cookies=cookies, img_sample=crawler.img_sample)
     except Exception as e:
         return SearchResult(sc["name"], query, [], error=str(e), elapsed_sec=round(time.time()-start, 2))
     finally:
@@ -4124,6 +4227,11 @@ class App(tk.Tk):
         self._thumb_cache = {}      # 이미지 URL → PhotoImage (실패 시 None)
         self._thumb_pending = set() # 받는 중인 URL
         self._thumb_rows = {}       # 이미지 URL → 현재 표의 iid 목록
+        self._thumb_fail = {}       # 이미지 URL → 실패 사유 (진단용, v9.0)
+        self._site_img_cookies = {} # 사이트명 → 검색 세션 쿠키 (로그인 필요한 이미지용)
+        self._site_img_sample = {}  # 사이트명 → 첫 상품 원본 (진단 파일용)
+        self._img_diag_path = ""    # 마지막 이미지 진단 파일 경로
+        self._status_base = ""
 
         # tk 입력 위젯 공통 테두리 (밝은 배경에서 입력칸 구분)
         for w in ("Entry", "Text"):
@@ -4236,7 +4344,8 @@ class App(tk.Tk):
         # 상태 바
         self.status_var = tk.StringVar(value="검색어를 입력하고 Enter 또는 검색 버튼을 누르세요")
         tk.Label(tab, textvariable=self.status_var, bg=self.BG, fg=self.TEXT2,
-                 font=("맑은 고딕", 9), anchor="w").pack(fill="x", padx=20)
+                 font=("맑은 고딕", 9), anchor="w", justify="left",
+                 wraplength=900).pack(fill="x", padx=20)
 
         # 사이트별 결과 건수 — 0건/오류인 사이트를 검색할 때마다 바로 확인 가능
         self.site_status_var = tk.StringVar(value="")
@@ -4555,7 +4664,10 @@ class App(tk.Tk):
             else:
                 self._all_products.extend(r.products)
                 site_summary.append(f"{r.site_name}:{len(r.products)}건")
+            self._site_img_cookies[r.site_name] = r.img_cookies
+            self._site_img_sample[r.site_name] = r.img_sample
         self.site_status_var.set("사이트별 결과  " + "  ·  ".join(site_summary))
+        self._img_diag_path = ""
 
         # 정렬
         sort_key = self.sort_var.get()
@@ -4639,9 +4751,13 @@ class App(tk.Tk):
             self._load_thumbnails()
 
         # 상태 바
-        err_txt = f"  |  ⚠ 오류: {', '.join(self._last_errors)}" if self._last_errors else ""
         hidden_txt = f" (품절 {hidden_cnt}개 숨김)" if hidden_cnt else ""
-        self.status_var.set(f"✓ '{self._last_query}' 검색 완료 — {len(visible)}개 결과{hidden_txt}{self._pil_hint()}{err_txt}")
+        self._status_base = f"✓ '{self._last_query}' 검색 완료 — {len(visible)}개 결과{hidden_txt}"
+        self._update_status()
+
+    def _update_status(self):
+        err_txt = f"  |  ⚠ 오류: {', '.join(self._last_errors)}" if self._last_errors else ""
+        self.status_var.set(f"{self._status_base}{self._pil_hint()}{self._img_status_txt()}{err_txt}")
 
     # ──────── 결과 이미지(썸네일) ────────
     def _pil_hint(self) -> str:
@@ -4665,39 +4781,125 @@ class App(tk.Tk):
         if self._last_query:
             self._render_products()
 
+    def _visible_products(self):
+        return [self._all_products[int(iid[2:])] for iid in self.tree.get_children("")
+                if iid.startswith("p_") and int(iid[2:]) < len(self._all_products)]
+
+    def _img_status_txt(self) -> str:
+        """이미지가 안 보이는 사이트를 사유와 함께 요약 (예: 팜스트리트 5/5 HTTP 302)"""
+        if not self.show_images or not self._last_query:
+            return ""
+        stats = {}
+        for p in self._visible_products():
+            st = stats.setdefault(p.site_name, {"n": 0, "bad": 0, "why": {}})
+            st["n"] += 1
+            url = p.image_url or ""
+            if not url.startswith("http"):
+                why = "주소 없음"
+            elif url in self._thumb_fail:
+                why = self._thumb_fail[url]
+            else:
+                continue
+            st["bad"] += 1
+            st["why"][why] = st["why"].get(why, 0) + 1
+        parts = [f"{site} {st['bad']}/{st['n']}({max(st['why'], key=st['why'].get)})"
+                 for site, st in stats.items() if st["bad"]]
+        if not parts:
+            return ""
+        diag = f" — 진단: {self._img_diag_path}" if self._img_diag_path else ""
+        return "  |  🖼 이미지 안 보임: " + " · ".join(parts) + diag
+
+    def _write_img_diag(self):
+        """이미지가 안 보이는 사이트의 주소·실패 사유·상품 원본 샘플을 debug/에 저장.
+        로그인 후에만 보이는 목록 구조를 확인해 사이트별로 고치기 위한 자료 (v9.0)"""
+        by_site = {}
+        for p in self._visible_products():
+            url = p.image_url or ""
+            why = "주소 없음" if not url.startswith("http") else self._thumb_fail.get(url)
+            if why:
+                by_site.setdefault(p.site_name, []).append((p.name, url, why))
+        if not by_site:
+            return
+        lines = [f"이미지 진단 — 검색어 '{self._last_query}' / v{__version__} / {datetime.now():%Y-%m-%d %H:%M:%S}",
+                 f"Pillow: {'있음' if Image is not None else '없음'}", ""]
+        for site, rows in by_site.items():
+            lines.append(f"■ {site} — 안 보임 {len(rows)}건")
+            for name, url, why in rows[:20]:
+                lines.append(f"  - [{why}] {name[:40]}  {url or '(없음)'}")
+            cookie_names = sorted({m.key for m in self._site_img_cookies.get(site, [])})
+            lines.append(f"  검색 세션 쿠키 이름(값 생략): {', '.join(cookie_names) or '없음'}")
+            lines.append("  첫 상품 원본(목록 HTML/JSON):")
+            lines.append("  " + (self._site_img_sample.get(site) or "(없음)").replace("\n", "\n  "))
+            lines.append("")
+        try:
+            DEBUG_DIR.mkdir(exist_ok=True)
+            path = DEBUG_DIR / f"이미지진단_{datetime.now():%Y%m%d_%H%M%S}.txt"
+            path.write_text("\n".join(lines), encoding="utf-8")
+            self._img_diag_path = f"debug/{path.name}"
+        except Exception:
+            self._img_diag_path = "(저장 실패)"
+
     def _load_thumbnails(self):
-        """현재 표에 있는 상품 중 아직 안 받은 이미지를 백그라운드로 받아 옴"""
+        """현재 표에 있는 상품 중 아직 안 받은 이미지를 백그라운드로 받아 옴.
+        v9.0: 사이트별로 검색 때의 로그인 쿠키를 같이 보내고, 실패 사유를 기록."""
         todo = [u for u in self._thumb_rows
                 if u not in self._thumb_cache and u not in self._thumb_pending]
         if not todo:
+            self.after(0, self._on_thumb_batch_done)
             return
         self._thumb_pending.update(todo)
         todo_set = set(todo)
-        referers = {}
+        referers, site_of = {}, {}
         for p in self._all_products:
-            if p.image_url in todo_set and p.url.startswith("http"):
-                referers.setdefault(p.image_url, p.url)
+            if p.image_url in todo_set:
+                site_of.setdefault(p.image_url, p.site_name)
+                if p.url.startswith("http"):
+                    referers.setdefault(p.image_url, p.url)
+        by_site = {}
+        for u in todo:
+            by_site.setdefault(site_of.get(u, ""), []).append(u)
+        cookies = {site: list(self._site_img_cookies.get(site, [])) for site in by_site}
 
-        async def fetch_all():
-            sem = asyncio.Semaphore(8)
+        async def fetch_site(site, urls, sem):
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                                      "Chrome/125.0.0.0 Safari/537.36",
                        "Accept": "image/avif,image/webp,image/png,image/*,*/*;q=0.8"}
+            jar = _make_cookie_jar()
+            for m in cookies.get(site, []):
+                host = (m["domain"] or "").lstrip(".")
+                if host:
+                    try:
+                        jar.update_cookies({m.key: m}, response_url=YarlURL(f"https://{host}/"))
+                    except Exception:
+                        pass
             timeout = aiohttp.ClientTimeout(total=10)
-            async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+            async with aiohttp.ClientSession(headers=headers, timeout=timeout, cookie_jar=jar) as session:
                 async def fetch(url):
-                    data = None
+                    data, why = None, ""
                     async with sem:
                         try:
                             ref = referers.get(url)
                             async with session.get(url, headers={"Referer": ref} if ref else None) as resp:
-                                if resp.status == 200:
+                                ctype = resp.headers.get("Content-Type", "").split(";")[0]
+                                if resp.status != 200:
+                                    why = f"HTTP {resp.status}"
+                                elif ctype.startswith("text/"):
+                                    why = f"이미지 아님({ctype})"
+                                else:
                                     data = await resp.content.read(3 * 1024 * 1024)
-                        except Exception:
-                            data = None
+                        except asyncio.TimeoutError:
+                            why = "시간 초과"
+                        except Exception as e:
+                            why = f"연결 실패({type(e).__name__})"
                     thumb = self._decode_thumb(data) if data else None
-                    self.after(0, lambda: self._on_thumb_loaded(url, thumb))
-                await asyncio.gather(*(fetch(u) for u in todo))
+                    if data and thumb is None:
+                        why = "형식 미지원(Pillow 없음)" if Image is None else "이미지 해석 실패"
+                    self.after(0, lambda: self._on_thumb_loaded(url, thumb, why))
+                await asyncio.gather(*(fetch(u) for u in urls))
+
+        async def fetch_all():
+            sem = asyncio.Semaphore(8)
+            await asyncio.gather(*(fetch_site(site, urls, sem) for site, urls in by_site.items()))
 
         def run():
             loop = asyncio.new_event_loop()
@@ -4708,6 +4910,14 @@ class App(tk.Tk):
                 loop.close()
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _on_thumb_batch_done(self):
+        """(메인 스레드) 받을 이미지가 다 끝나면 진단 파일 저장·상태줄 갱신"""
+        if self._thumb_pending or not self._last_query:
+            return
+        if not self._img_diag_path and self._img_status_txt():
+            self._write_img_diag()
+        self._update_status()
 
     def _decode_thumb(self, data: bytes):
         """이미지 바이트 → 정사각 썸네일. Pillow면 PIL Image, 아니면 원본 바이트(PNG/GIF만 가능)"""
@@ -4723,7 +4933,7 @@ class App(tk.Tk):
         except Exception:
             return None
 
-    def _on_thumb_loaded(self, url: str, thumb):
+    def _on_thumb_loaded(self, url: str, thumb, why: str = ""):
         """(메인 스레드) 받은 썸네일을 PhotoImage로 만들어 캐시·표에 반영"""
         self._thumb_pending.discard(url)
         photo = None
@@ -4741,9 +4951,14 @@ class App(tk.Tk):
             photo = None
         self._thumb_cache[url] = photo
         if photo:
+            self._thumb_fail.pop(url, None)
             for iid in self._thumb_rows.get(url, []):
                 if self.tree.exists(iid):
                     self.tree.item(iid, image=photo)
+        else:
+            self._thumb_fail[url] = why or "이미지 해석 실패"
+        if not self._thumb_pending:
+            self._on_thumb_batch_done()
 
     def _sort_tree(self, col):
         """컬럼 클릭 → 오름차순/내림차순 토글 정렬"""
