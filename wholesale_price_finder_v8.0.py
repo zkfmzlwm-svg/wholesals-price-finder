@@ -1,19 +1,30 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v7.4 — Windows GUI
+도매 최저가 비교 프로그램 v8.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.4.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v8.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
   pip install cryptography   (선택 — 비밀번호 강력 암호화)
+  pip install pillow         (선택 — 결과창 JPEG 이미지 표시. 없으면 PNG/GIF만 표시)
 
 버전 정책 (v1.0부터 적용):
   - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v8.0 — UI 개선 2건.
+         - 전체 테마를 어두운 남색 계열에서 밝은 톤(연회색 배경·흰 카드/표·진한
+           글자)으로 변경. 입력창·메모장·요약 카드에 얇은 테두리를 넣어 밝은
+           배경에서도 구분되게 함. 대화상자(사이트 수정/로그인 설정)도 같은 테마.
+         - 검색 결과 표에 상품 이미지(썸네일) 열 추가. 검색 바의 "🖼 이미지
+           숨기기/보기" 버튼으로 켜고 끔(재검색 없이 즉시 적용, 상태는
+           config.json settings.show_images에 저장). 이미지는 결과 표시 후
+           백그라운드에서 동시 8개씩 받아 오며(사이트 Referer 포함, 10초 제한)
+           한 번 받은 이미지는 캐시해 정렬·품절 제외·토글 시 다시 받지 않음.
+           JPEG 표시는 Pillow 필요(없으면 PNG/GIF만 표시하고 상태줄에 안내).
   v7.4 — 실사용 오류 3건 수정 (사용자 진단 파일 + 사이트 JS로 원인 확인).
          - 동성몰: 검색 결과가 없을 때 페이지 문구가 "상품이 존재하지 않습니다."
            (div.goods_no_data) + "검색결과 0 개"인데 이를 못 알아봐 0건을 "사이트
@@ -296,7 +307,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "7.4"
+__version__ = "8.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -312,6 +323,7 @@ from yarl import URL as YarlURL
 
 import tkinter as tk
 from tkinter import ttk, messagebox
+import io
 
 # ═══════════════════════════════════════════════════════════════
 # 외부 패키지
@@ -324,6 +336,12 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "aiohttp", "beautifulsoup4"])
     import aiohttp
     from bs4 import BeautifulSoup
+
+# 결과창 썸네일용(선택) — 없으면 tk.PhotoImage로 PNG/GIF만 표시
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    Image = ImageTk = None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -450,6 +468,7 @@ DEFAULT_CONFIG = {
         "timeout_seconds": 30,
         "sort_by": "price",
         "hide_soldout": False,
+        "show_images": True,
     },
 }
 
@@ -4036,17 +4055,23 @@ class App(tk.Tk):
     """메인 윈도우"""
 
     # ── 색상 테마 ──
-    BG       = "#1a1a2e"
-    BG2      = "#16213e"
-    BG3      = "#0f3460"
+    BG       = "#f4f6fb"
+    BG2      = "#e3e8f0"
+    BG3      = "#d6e2f5"
     ACCENT   = "#e94560"
-    ACCENT2  = "#533483"
-    TEXT     = "#eaeaea"
-    TEXT2    = "#a0a0b8"
-    GREEN    = "#00d2a0"
-    YELLOW   = "#ffc107"
-    CARD_BG  = "#1e2a45"
-    ENTRY_BG = "#253555"
+    ACCENT2  = "#bccdeb"
+    TEXT     = "#1f2a3d"
+    TEXT2    = "#667085"
+    GREEN    = "#12a37b"
+    YELLOW   = "#c77c02"
+    CARD_BG  = "#ffffff"
+    ENTRY_BG = "#ffffff"
+    BORDER   = "#cfd6e2"
+
+    # 결과창 썸네일
+    THUMB_SIZE      = 48
+    ROW_H           = 32
+    ROW_H_WITH_IMG  = 56
 
     def __init__(self):
         super().__init__()
@@ -4062,6 +4087,17 @@ class App(tk.Tk):
         self._sort_asc = True
         self._ctx_last_cell = ""
         self._ctx_last_row  = None
+        self._thumb_cache = {}      # 이미지 URL → PhotoImage (실패 시 None)
+        self._thumb_pending = set() # 받는 중인 URL
+        self._thumb_rows = {}       # 이미지 URL → 현재 표의 iid 목록
+
+        # tk 입력 위젯 공통 테두리 (밝은 배경에서 입력칸 구분)
+        for w in ("Entry", "Text"):
+            self.option_add(f"*{w}.highlightThickness", 1)
+            self.option_add(f"*{w}.highlightBackground", self.BORDER)
+            self.option_add(f"*{w}.highlightColor", self.ACCENT)
+        for w in ("Radiobutton", "Checkbutton"):
+            self.option_add(f"*{w}.highlightThickness", 0)
 
         # 스타일
         style = ttk.Style(self)
@@ -4082,8 +4118,8 @@ class App(tk.Tk):
         style.configure("Big.TLabel", font=("맑은 고딕", 22, "bold"), foreground=self.ACCENT, background=self.BG)
         style.configure("Accent.TButton", background=self.ACCENT, foreground="white", font=("맑은 고딕", 10, "bold"), padding=[16, 8])
         style.map("Accent.TButton", background=[("active", "#c73a52")])
-        style.configure("Green.TButton", background=self.GREEN, foreground="#111", font=("맑은 고딕", 10, "bold"), padding=[12, 6])
-        style.map("Green.TButton", background=[("active", "#00b88a")])
+        style.configure("Green.TButton", background=self.GREEN, foreground="white", font=("맑은 고딕", 10, "bold"), padding=[12, 6])
+        style.map("Green.TButton", background=[("active", "#0e8a68")])
         style.configure("Flat.TButton", background=self.BG3, foreground=self.TEXT, padding=[10, 6])
         style.map("Flat.TButton", background=[("active", self.ACCENT2)])
         style.configure("Danger.TButton", background="#c0392b", foreground="white", padding=[10, 6])
@@ -4091,7 +4127,11 @@ class App(tk.Tk):
         style.configure("Treeview", background=self.CARD_BG, foreground=self.TEXT, fieldbackground=self.CARD_BG,
                          rowheight=32, font=("맑은 고딕", 10))
         style.configure("Treeview.Heading", background=self.BG3, foreground=self.TEXT, font=("맑은 고딕", 10, "bold"))
-        style.map("Treeview", background=[("selected", self.BG3)])
+        style.map("Treeview", background=[("selected", self.BG3)], foreground=[("selected", self.TEXT)])
+        style.configure("Results.Treeview", rowheight=self.ROW_H)
+        style.configure("TScrollbar", background=self.BG2, troughcolor=self.BG, bordercolor=self.BORDER,
+                         arrowcolor=self.TEXT2)
+        style.map("TScrollbar", background=[("active", self.BG3)])
 
         self._build_ui()
 
@@ -4152,6 +4192,11 @@ class App(tk.Tk):
                        bg=self.BG, fg=self.TEXT, selectcolor=self.BG3, activebackground=self.BG,
                        activeforeground=self.TEXT, font=("맑은 고딕", 9)).pack(side="left", padx=(0, 10))
 
+        # 이미지 보이기/숨기기 — 결과 표 썸네일 열 토글 (재검색 없이 즉시 적용)
+        self.show_images = self.config_data.get("settings", {}).get("show_images", True)
+        self.img_btn = ttk.Button(bar, style="Flat.TButton", command=self._on_toggle_images)
+        self.img_btn.pack(side="left", padx=(0, 10))
+
         ttk.Button(bar, text="🔍 검색", style="Accent.TButton", command=self._do_search).pack(side="left")
 
         # 상태 바
@@ -4174,7 +4219,11 @@ class App(tk.Tk):
         tree_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
         cols = ("rank", "site", "name", "price", "unit_price", "maker", "stock")
-        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(tree_frame, columns=cols, show="headings", selectmode="browse",
+                                 style="Results.Treeview")
+        self.tree.heading("#0", text="이미지")
+        self.tree.column("#0", width=self.THUMB_SIZE + 24, minwidth=self.THUMB_SIZE + 24,
+                         stretch=False, anchor="center")
         self._col_headings = {
             "rank": ("#", 40), "site": ("사이트", 100), "name": ("상품명", 320),
             "price": ("가격", 100),
@@ -4192,6 +4241,7 @@ class App(tk.Tk):
 
         self.tree.bind("<Double-1>", self._on_tree_double_click)
         self.tree.bind("<Button-3>", self._on_tree_right_click)
+        self._apply_image_mode()
 
         # 우클릭 컨텍스트 메뉴
         self._ctx_menu = tk.Menu(self, tearoff=0, bg=self.CARD_BG, fg=self.TEXT,
@@ -4521,7 +4571,8 @@ class App(tk.Tk):
                 ("최저가 상품", low_name, self.TEXT),
             ]
             for title, value, color in cards_data:
-                card = tk.Frame(self.summary_frame, bg=self.CARD_BG, padx=15, pady=8)
+                card = tk.Frame(self.summary_frame, bg=self.CARD_BG, padx=15, pady=8,
+                                highlightthickness=1, highlightbackground=self.BORDER)
                 card.pack(side="left", padx=(0, 10), fill="x", expand=True)
                 tk.Label(card, text=title, bg=self.CARD_BG, fg=self.TEXT2, font=("맑은 고딕", 9)).pack(anchor="w")
                 tk.Label(card, text=value, bg=self.CARD_BG, fg=color, font=("맑은 고딕", 13, "bold")).pack(anchor="w")
@@ -4533,21 +4584,132 @@ class App(tk.Tk):
         for c, (base_txt, _) in self._col_headings.items():
             self.tree.heading(c, text=base_txt)
 
+        self._thumb_rows = {}
         for rank, (idx, p) in enumerate(visible, 1):
             stock_txt = "✓" if p.in_stock else "품절"
             price_txt = f"₩{p.price:,}" if p.price > 0 else "가격문의"
             maker = p.extra_info.get("제조사", "")
 
-            self.tree.insert("", "end", iid=f"p_{idx}", values=(
+            iid = f"p_{idx}"
+            self.tree.insert("", "end", iid=iid, values=(
                 rank, p.site_name, p.name,
                 price_txt,
                 p.unit_price or "-", maker, stock_txt
             ))
+            img_url = p.image_url or ""
+            if img_url.startswith("http"):
+                self._thumb_rows.setdefault(img_url, []).append(iid)
+                if self._thumb_cache.get(img_url):
+                    self.tree.item(iid, image=self._thumb_cache[img_url])
+        if self.show_images:
+            self._load_thumbnails()
 
         # 상태 바
         err_txt = f"  |  ⚠ 오류: {', '.join(self._last_errors)}" if self._last_errors else ""
         hidden_txt = f" (품절 {hidden_cnt}개 숨김)" if hidden_cnt else ""
-        self.status_var.set(f"✓ '{self._last_query}' 검색 완료 — {len(visible)}개 결과{hidden_txt}{err_txt}")
+        self.status_var.set(f"✓ '{self._last_query}' 검색 완료 — {len(visible)}개 결과{hidden_txt}{self._pil_hint()}{err_txt}")
+
+    # ──────── 결과 이미지(썸네일) ────────
+    def _pil_hint(self) -> str:
+        if self.show_images and Image is None:
+            return "  |  🖼 Pillow 미설치: PNG/GIF만 표시 (pip install pillow)"
+        return ""
+
+    def _apply_image_mode(self):
+        """show_images 상태를 버튼 문구·표(썸네일 열/행 높이)에 반영"""
+        self.img_btn.configure(text="🖼 이미지 숨기기" if self.show_images else "🖼 이미지 보기")
+        ttk.Style(self).configure("Results.Treeview",
+                                  rowheight=self.ROW_H_WITH_IMG if self.show_images else self.ROW_H)
+        self.tree.configure(show="tree headings" if self.show_images else "headings")
+
+    def _on_toggle_images(self):
+        """이미지 보이기/숨기기 토글 → 설정 저장 후 즉시 반영"""
+        self.show_images = not self.show_images
+        self.config_data.setdefault("settings", {})["show_images"] = self.show_images
+        save_config(self.config_data)
+        self._apply_image_mode()
+        if self._last_query:
+            self._render_products()
+
+    def _load_thumbnails(self):
+        """현재 표에 있는 상품 중 아직 안 받은 이미지를 백그라운드로 받아 옴"""
+        todo = [u for u in self._thumb_rows
+                if u not in self._thumb_cache and u not in self._thumb_pending]
+        if not todo:
+            return
+        self._thumb_pending.update(todo)
+        todo_set = set(todo)
+        referers = {}
+        for p in self._all_products:
+            if p.image_url in todo_set and p.url.startswith("http"):
+                referers.setdefault(p.image_url, p.url)
+
+        async def fetch_all():
+            sem = asyncio.Semaphore(8)
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                     "Chrome/125.0.0.0 Safari/537.36",
+                       "Accept": "image/avif,image/webp,image/png,image/*,*/*;q=0.8"}
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+                async def fetch(url):
+                    data = None
+                    async with sem:
+                        try:
+                            ref = referers.get(url)
+                            async with session.get(url, headers={"Referer": ref} if ref else None) as resp:
+                                if resp.status == 200:
+                                    data = await resp.content.read(3 * 1024 * 1024)
+                        except Exception:
+                            data = None
+                    thumb = self._decode_thumb(data) if data else None
+                    self.after(0, lambda: self._on_thumb_loaded(url, thumb))
+                await asyncio.gather(*(fetch(u) for u in todo))
+
+        def run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(fetch_all())
+            finally:
+                loop.close()
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _decode_thumb(self, data: bytes):
+        """이미지 바이트 → 정사각 썸네일. Pillow면 PIL Image, 아니면 원본 바이트(PNG/GIF만 가능)"""
+        if Image is None:
+            return data
+        try:
+            img = Image.open(io.BytesIO(data))
+            img.thumbnail((self.THUMB_SIZE, self.THUMB_SIZE))
+            img = img.convert("RGBA")
+            canvas = Image.new("RGBA", (self.THUMB_SIZE, self.THUMB_SIZE), (255, 255, 255, 0))
+            canvas.paste(img, ((self.THUMB_SIZE - img.width) // 2, (self.THUMB_SIZE - img.height) // 2), img)
+            return canvas
+        except Exception:
+            return None
+
+    def _on_thumb_loaded(self, url: str, thumb):
+        """(메인 스레드) 받은 썸네일을 PhotoImage로 만들어 캐시·표에 반영"""
+        self._thumb_pending.discard(url)
+        photo = None
+        try:
+            if thumb is None:
+                pass
+            elif Image is not None:
+                photo = ImageTk.PhotoImage(thumb)
+            else:
+                photo = tk.PhotoImage(data=base64.b64encode(thumb).decode())
+                factor = max(1, -(-max(photo.width(), photo.height()) // self.THUMB_SIZE))
+                if factor > 1:
+                    photo = photo.subsample(factor)
+        except Exception:
+            photo = None
+        self._thumb_cache[url] = photo
+        if photo:
+            for iid in self._thumb_rows.get(url, []):
+                if self.tree.exists(iid):
+                    self.tree.item(iid, image=photo)
 
     def _sort_tree(self, col):
         """컬럼 클릭 → 오름차순/내림차순 토글 정렬"""
