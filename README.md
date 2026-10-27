@@ -3,7 +3,7 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v8.1
+## 현재 버전: v9.0
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -153,6 +153,8 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 - 🚫 품절 제외 체크박스 (검색 결과에서 품절 상품 숨김, 설정 유지)
 - 🖼 결과 이미지(썸네일) 표시 — 검색 바의 "이미지 숨기기/보기" 버튼으로 토글, 설정 유지
   (JPEG 표시는 Pillow 필요: `pip install pillow`, 없으면 PNG/GIF만 표시)
+  - 이미지를 받을 때 검색 세션의 로그인 쿠키를 함께 보냄(v9.0)
+  - 이미지가 안 보이는 사이트는 상태줄에 사유 표시 + `debug/이미지진단_*.txt` 저장(v9.0)
 - ☀️ 밝은 톤 UI 테마 (v8.0)
 
 ## 진단 파일(debug/) 취급
@@ -165,7 +167,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v8.1.py
+python wholesale_price_finder_v9.0.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -195,10 +197,16 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v8.1.py
+pyinstaller --onefile --windowed wholesale_price_finder_v9.0.py
 ```
 
 ## 변경 이력
+- v9.0 — 결과창 이미지 개선. 이미지 요청에 검색 세션의 로그인 쿠키를 함께 보냄. 이미지 주소
+  처리 공통화(lazy-load 속성 우선, 플레이스홀더 제외, `//`·`/`·`../` 상대 주소 절대화, 아이콘 img
+  건너뜀). 팜스트리트 `//image.pharm-street.com` 주소를 깨뜨리던 버그 수정, 플랫팜 이미지 호스트를
+  `cdn.platpharm.co.kr`로 변경(사이트 JS 확인), 광동몰은 화면 썸네일 우선, 스마트팜 `../` 상대 주소
+  처리, 동성몰·서울약사신협 공통 처리 적용. 이미지가 안 보이는 사이트를 상태줄에 사유와 함께
+  표시하고 `debug/이미지진단_*.txt`(주소·사유·첫 상품 원본, 쿠키는 이름만)를 저장.
 - v8.1 — 팜페이몰: 결과가 있는 제품도 '오류'로 뜨던 문제 수정. 검색 응답 `rtnCode`가 "OK"가
   아니면 전부 오류 처리했으나, 사이트 JS(`Jdins.sendAjaxJson`)는 `rtnCode=="ERR"`만 오류로 봄.
   상품 배열이 있으면 성공, 상품이 없을 때만 ERR/E코드를 오류로 표시(E9999는 세션 종료 안내).
