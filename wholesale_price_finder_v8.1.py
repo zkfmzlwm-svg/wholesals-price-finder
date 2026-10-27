@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v8.0 — Windows GUI
+도매 최저가 비교 프로그램 v8.1 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v8.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v8.1.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,14 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v8.1 — 팜페이몰: 결과가 있는 제품도 '오류'로 뜨던 문제 수정. 검색 응답의
+         returnMapper.rtnCode가 "OK"가 아니면 전부 오류로 처리했는데, 사이트
+         JS(Jdins.sendAjaxJson)는 rtnCode=="ERR"만 오류로 보고 성공 코드는 API마다
+         다름("OK"는 로그인 API 기준, 프레임워크엔 "0000"도 사용). 상품 배열이
+         있으면 코드와 무관하게 성공, 상품이 없을 때만 ERR/E코드를 오류로 표시
+         (E9999·rtnURL=/isLogin.aspx는 세션 종료 안내 — 비로그인 실측). 함께
+         보완: 응답 앞 BOM 허용, 2페이지 이후 실패 시 1페이지 결과 유지,
+         minprice/stocksum의 "180.00"·"1,200" 형태 정수 변환.
   v8.0 — UI 개선 2건.
          - 전체 테마를 어두운 남색 계열에서 밝은 톤(연회색 배경·흰 카드/표·진한
            글자)으로 변경. 입력창·메모장·요약 카드에 얇은 테두리를 넣어 밝은
@@ -307,7 +315,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "8.0"
+__version__ = "8.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -3368,6 +3376,8 @@ class PharmPayMallCrawler(BaseCrawler):
           pageInfo    = {"viewListCnt":14,"viewPageCnt":5}
           formData    = {"page":"1", ..., "directType":"p", "goodsnm":"<검색어>"}
           requestsort = (빈 값)
+      - 성공 판정(v8.1): 상품 배열이 있으면 성공. rtnCode=="ERR"/E코드만 오류
+        (사이트 Jdins.sendAjaxJson 기준 — 검색 응답의 성공 코드값은 미확인).
       - 응답 상품 객체 키: goodsnm(상품명), stand(규격, "1매"),
         syncodenm(제조사), minprice(가격, 문자열 "180"), stocksum(재고,
         문자열), img2(상대경로 이미지), pmgcode(상품코드)
@@ -3518,32 +3528,56 @@ class PharmPayMallCrawler(BaseCrawler):
             raise RuntimeError(f"'{self.site_name}' 검색 요청이 다른 주소로 이동했습니다 (HTTP {status}, {location})")
 
         try:
-            data = json.loads(body)
+            data = json.loads(body.lstrip("\ufeff"))
         except (ValueError, json.JSONDecodeError):
             # 세션 만료 시 JSON 대신 로그인 페이지 HTML이 오는 경우
-            if "login" in body.lower():
+            if "<form" in body.lower() and "login" in body.lower():
                 raise LoginError(f"'{self.site_name}' 로그인이 필요합니다. ID/비밀번호를 설정하세요.")
             path = self.save_debug("검색응답", body)
             raise RuntimeError(f"'{self.site_name}' 검색 응답을 해석할 수 없습니다 (HTTP {status}) — 진단 파일: {path}")
 
         rm = data.get("returnMapper") if isinstance(data, dict) else None
-        if isinstance(rm, dict) and rm.get("rtnCode") not in (None, "", "OK"):
-            msg = rm.get("rtnMessage") or rm.get("rtnCode")
-            raise RuntimeError(f"'{self.site_name}' 검색 오류: {msg}")
+        rm = rm if isinstance(rm, dict) else {}
+        code = str(rm.get("rtnCode") or "")
+        # 세션 종료: logOutDiscon.json과 같은 E9999 + rtnURL=/isLogin.aspx (비로그인 실측)
+        if code == "E9999" or "isLogin" in str(rm.get("rtnURL") or ""):
+            raise LoginError(f"'{self.site_name}' 로그인 세션이 끊겼습니다 — 다시 검색하거나 로그인 정보를 확인하세요")
 
+        # 상품 배열이 있으면 rtnCode와 무관하게 성공. 사이트 JS(Jdins.sendAjaxJson)는
+        # rtnCode=="ERR"만 오류로 보고, 성공 코드는 API마다 "OK"/"0000" 등으로 다름.
+        # v7.3~v8.0은 "OK"가 아니면 전부 오류로 처리해 결과가 있어도 '오류'로 떴음.
         items = self._find_items(data)
-        if items is None:
-            # 결과 0건일 때도 배열 자체가 없을 수 있음 — 구조 확인용으로 저장만
-            self.save_debug("검색응답", body, ext="json")
-            return []
-        return items
+        if items is not None:
+            return items
+        if code == "ERR" or re.fullmatch(r"E\d+", code):
+            path = self.save_debug("검색응답", body, ext="json")
+            msg = rm.get("rtnMessage") or code
+            raise RuntimeError(f"'{self.site_name}' 검색 오류: {msg} (rtnCode={code}) — 진단 파일: {path}")
+        # 결과 0건일 때도 배열 자체가 없을 수 있음 — 구조 확인용으로 저장만
+        self.save_debug("검색응답", body, ext="json")
+        return []
+
+    @classmethod
+    def _to_int(cls, v) -> int:
+        """minprice/stocksum 값(문자열·숫자, "1,200"·"180.00" 형태 포함) → 정수"""
+        t = str(v if v is not None else "").replace(",", "").strip()
+        try:
+            return int(float(t))
+        except ValueError:
+            return cls.extract_price(t)
 
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
 
         items = []
         for page in range(1, self.MAX_PAGES + 1):
-            page_items = await self._fetch_page(query, page)
+            try:
+                page_items = await self._fetch_page(query, page)
+            except Exception:
+                # 2페이지 이후 실패는 이미 받은 결과를 살림 (1페이지 실패만 오류로 표시)
+                if items:
+                    break
+                raise
             items.extend(page_items)
             if len(page_items) < self.PAGE_SIZE or len(items) >= max_results * 3:
                 break
@@ -3558,13 +3592,13 @@ class PharmPayMallCrawler(BaseCrawler):
                 seen.add(code)
 
                 name = self.clean_text(item.get("goodsnm") or "")
-                price = self.extract_price(str(item.get("minprice") or ""))
+                price = self._to_int(item.get("minprice"))
                 if not name or price <= 0:
                     continue
                 stand = self.clean_text(item.get("stand") or "")
                 maker = self.clean_text(item.get("syncodenm") or "")
                 stock_raw = item.get("stocksum")
-                in_stock = True if stock_raw in (None, "") else self.extract_price(str(stock_raw)) > 0
+                in_stock = True if stock_raw in (None, "") else self._to_int(stock_raw) > 0
                 img = item.get("img2") or ""
 
                 products.append(Product(
