@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v7.3 — Windows GUI
+도매 최저가 비교 프로그램 v7.4 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.3.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v7.4.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -14,6 +14,21 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v7.4 — 실사용 오류 3건 수정 (사용자 진단 파일 + 사이트 JS로 원인 확인).
+         - 동성몰: 검색 결과가 없을 때 페이지 문구가 "상품이 존재하지 않습니다."
+           (div.goods_no_data) + "검색결과 0 개"인데 이를 못 알아봐 0건을 "사이트
+           구조 변경" 오류로 표시하던 문제 수정.
+         - 대웅더샵: /contents/search는 Pages Router 페이지로 SSR HTML에 상품이
+           없고(로딩 아이콘만), 목록은 로드 후 POST sonic-feapi.shop.co.kr/userfe/
+           api/v1/userfe/main/search/groups를 userAccessToken 쿠키로 Bearer 인증해
+           불러옴. HTML/RSC 파싱(항상 실패)을 이 API 직접 호출로 교체.
+         - 팜페이몰 "로그인은 되는데 검색이 안 됨" 수정. 로그인 확인 페이지
+           (/login_confirm.aspx)가 서버 쿠키가 아니라 JS(jdins.setCookie)로
+           loginHash·userCode 쿠키를 심는데, JS를 실행하지 않는 앱에선 두 쿠키가
+           빠져 검색 요청이 302 → /logOutDiscon.json으로 튕기고 조용히 0건이 됐음
+           (비로그인 실측 + 사이트 JS 확인). 같은 쿠키를 브라우저와 동일하게
+           (path=/, encodeURIComponent) 직접 설정하고, 메인 페이지 접근으로 로그인을
+           검증하며, 세션이 끊기면 0건 대신 오류로 표시.
   v7.3 — 사이트 추가: 팜페이몰(pharmpaymall.com). ASP.NET + 자체 JDINS 프레임워크.
          로그인(POST /loginChk.json, 필드 userid/userpwd, 응답 returnMapper.rtnCode
          == "OK" 성공 → rtnURL /login_confirm.aspx 이동)과 검색(POST
@@ -281,7 +296,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "7.3"
+__version__ = "7.4"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -2646,34 +2661,40 @@ class DaewoongTheShopCrawler(BaseCrawler):
         https://www.shop.co.kr/login/logout.do 로 보냄 → 홈을 GET해 the.shop.
         co.kr에 머무르는지로 판정(기존 "쿠키 개수" 판정은 신뢰 불가).
 
-    검색 (2026-09 DevTools 캡처로 확인): GET
-      https://the.shop.co.kr/contents/search?searchKey=all&searchVal={query}
-      - searchKey 옵션: all(통합)/상품명/제조사/보험코드/상품코드/포함성분/ATC
-      - 별도 JSON API 없이 Next.js SSR 풀 페이지 HTML에 상품 리스트가 렌더링됨.
-        react-virtuoso 가상 스크롤을 쓰므로 SSR 응답에는 상단 일부 항목만
-        포함될 수 있음(스크롤 시 추가 항목은 별도 클라이언트 동작으로 로드
-        되는 것으로 추정 — 무한스크롤 API는 미확인).
-      - 상품 카드: div.item_result_box__Xr14g (Next.js CSS Modules 해시라
-        사이트 재배포 시 클래스명이 바뀔 수 있음에 유의)
-        - 품절: 카드에 item_soldout__nJaFL 클래스 추가됨, 가격 대신
-          .item_soldout_tt__dqaF0(텍스트 "품절")가 표시됨
-        - 상품명+규격+단위: .item_title__AU8UC (예: "퓨어킷 항균마스크
-          1매(블랙/유광) L 20EA" — <strong> 3개가 공백으로 이어짐)
-        - 가격: .item_won__tOdO2 (예: "66,000", 품절 시 없음)
-        - 제조사/판매사: .item_info_box__bi2tB .item_name__Bp_mI
-        - 썸네일: .item_thumb__XKNBq img[src] (Next.js 이미지 프록시 URL)
-      - 상품 상세 링크(href)는 카드에 없음 — React 클릭 핸들러로 우측
-        패널(도매처별 가격 비교)을 갱신하는 구조라 정적 HTML만으로는
-        개별 상품 URL을 구성할 수 없음. url 필드는 검색 페이지 URL로 대체.
-      - 우측 상세 패널(search-product-item_list__* 등, 도매처별 개별가/
-        재고)은 특정 상품 클릭 시에만 채워지는 것으로 보여 전체 상품
-        목록을 순회하는 이 크롤러 구조에서는 사용하지 않음.
+    검색 (v7.4, 사용자 진단 파일 + 사이트 JS 역공학으로 확인):
+      - /contents/search 페이지는 Next.js Pages Router(__NEXT_DATA__, pages/
+        contents/search 청크)이고, SSR HTML에는 카테고리·배너·회원정보만 있고
+        상품 목록 자리엔 로딩 아이콘뿐 — 목록은 브라우저가 페이지 로드 후 별도
+        API로 불러옴. (v4.1의 "App Router RSC 페이로드" 추정과 HTML 파싱은 이
+        구조에선 항상 0건이었음.)
+      - API: POST https://sonic-feapi.shop.co.kr/userfe/api/v1/userfe/main/search/groups
+        (사이트 axios 클라이언트 "user-csr", baseURL .../userfe/api/v1)
+        - 인증: 요청 인터셉터가 userAccessToken 쿠키(JWT)를 읽어
+          Authorization: Bearer <토큰>, Accept: application/json 으로 보냄.
+          토큰 없거나 무효면 HTTP 401 {"code":"401","message":"Full
+          authentication is required..."} (실측).
+        - JSON 본문(값은 쿼리스트링 왕복을 거쳐 전부 문자열): pageNum,
+          pageRowSize=10, searchKey=all, searchVal=encodeURIComponent(검색어)
+          — 인코딩된 문자열 그대로, orderBy=saleCnt(기본 "판매순"),
+          orderOpt=DESC, reSrchFlag=false, atcCode/ctgCd/selSellerCds="",
+          mallType=5, reSearchVal="", ez3plYn=N, whlsCntrYn=N
+        - 응답: {"data": [그룹...]}; 그룹: groupSeq, groupNm, groupNmRemark,
+          grpYn, mafcNm(제조사), bohPrice(약가), imgPath, goodsMasterList[];
+          품목: goodsMasterCd, goodsNm, goodsNmRemark, goodsStnd(규격),
+          goodsUnit, goodsUnitRemark, lastPrice(가격), soldOutYn, vcServiceYn,
+          imgPath. 화면은 soldOutYn=Y 이거나 vcServiceYn≠Y면 "품절" 표시.
+        - 이미지: https://img.shop.co.kr/upload/product/<imgPath>
+        - 페이지당 10그룹(무한 스크롤로 pageNum 증가)
     """
 
     BASE          = "https://the.shop.co.kr"
     LOGIN_BASE    = "https://www.shop.co.kr"
     LOGIN_URL     = "https://www.shop.co.kr/front/api/auth/mimsLogin"
     SEARCH_URL    = "https://the.shop.co.kr/contents/search"
+    SEARCH_API_URL = "https://sonic-feapi.shop.co.kr/userfe/api/v1/userfe/main/search/groups"
+    IMG_BASE      = "https://img.shop.co.kr/upload/product/"
+    PAGE_SIZE     = 10
+    MAX_PAGES     = 3
     REDIRECT_URL  = "https://www.shop.co.kr/front/api/theshop/user/mapping/get_secure_check"
     TOKEN_API_URL = "https://mims-account.shop.co.kr/apis/auth/login/direct"
     IP_ECHO_URL   = "https://api.ipify.org?format=json"
@@ -2776,128 +2797,95 @@ class DaewoongTheShopCrawler(BaseCrawler):
             await resp.read()
             return str(resp.url).startswith(self.BASE)
 
-    # RSC(flight) 데이터에서 상품 객체를 찾을 때 쓰는 후보 키 — 실제 키는 미확인
-    _FLIGHT_NAME_KEYS  = ("goodsNm", "goodsName", "productName", "productNm", "prdNm",
-                          "prodNm", "itemNm", "itemName")
-    _FLIGHT_PRICE_KEYS = ("salePrice", "sellPrice", "sellingPrice", "price", "goodsPrice",
-                          "supplyPrice", "unitPrice")
-    _FLIGHT_MAKER_KEYS = ("makerNm", "makerName", "maker", "manufacturer", "mnfcNm",
-                          "companyNm", "vendorNm", "sellerNm")
+    def _access_token(self) -> str:
+        for cookie in self.session.cookie_jar:
+            if cookie.key == "userAccessToken" and cookie.value:
+                return cookie.value
+        return ""
 
-    def _parse_flight(self, html: str, search_url: str) -> list:
-        """App Router의 self.__next_f.push([1,"..."]) 페이로드에서 상품 객체 추출.
-        v4.0 확인: the.shop.co.kr가 Next.js App Router(main-app 청크)로 재배포됨 —
-        목록이 클라이언트 컴포넌트로 렌더링되면 SSR HTML 대신 이 페이로드에만
-        데이터가 들어 있을 수 있음."""
-        chunks = []
-        for m in re.finditer(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', html):
-            try:
-                chunks.append(json.loads(f'"{m.group(1)}"'))
-            except Exception:
-                continue
-        found, seen = [], set()
-
-        def walk(o):
-            if isinstance(o, dict):
-                name = next((o[k] for k in self._FLIGHT_NAME_KEYS if isinstance(o.get(k), str) and o[k].strip()), None)
-                price = next((o[k] for k in self._FLIGHT_PRICE_KEYS if isinstance(o.get(k), (int, float, str)) and o.get(k) != ""), None)
-                if name and price is not None:
-                    pv = self.extract_price(str(price).split(".")[0])
-                    key = (name.strip(), pv)
-                    if key not in seen:
-                        seen.add(key)
-                        maker = next((o[k] for k in self._FLIGHT_MAKER_KEYS if isinstance(o.get(k), str)), "")
-                        found.append(Product(
-                            name=self.clean_text(name), price=pv, unit_price=None, url=search_url,
-                            site_name=self.site_name, image_url=None, in_stock=pv > 0,
-                            extra_info={"제조사": self.clean_text(maker)} if maker else {},
-                        ))
-                for v in o.values():
-                    walk(v)
-            elif isinstance(o, list):
-                for v in o:
-                    walk(v)
-
-        for line in "".join(chunks).split("\n"):
-            _, sep, payload = line.partition(":")
-            if not sep or not payload[:1] in ("[", "{"):
-                continue
-            try:
-                walk(json.loads(payload))
-            except Exception:
-                continue
-        return found
+    async def _fetch_groups(self, token: str, query: str, page: int) -> list:
+        body = {
+            "pageNum": str(page), "pageRowSize": str(self.PAGE_SIZE),
+            "searchKey": "all", "searchVal": quote(query, safe="!*'()-_.~"),
+            "orderBy": "saleCnt", "orderOpt": "DESC", "reSrchFlag": "false",
+            "atcCode": "", "ctgCd": "", "selSellerCds": "", "mallType": "5",
+            "reSearchVal": "", "ez3plYn": "N", "whlsCntrYn": "N",
+        }
+        async with self.session.post(self.SEARCH_API_URL, json=body, headers={
+            **self._headers,
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Origin": self.BASE,
+            "Referer": f"{self.BASE}/",
+        }) as resp:
+            status = resp.status
+            text = await resp.text()
+        if status == 401:
+            raise LoginError(f"'{self.site_name}' 검색 API 인증 실패(토큰 만료) — 다시 검색하거나 로그인 정보를 확인하세요")
+        try:
+            data = json.loads(text)
+        except ValueError:
+            path = self.save_debug("검색API", text, ext="txt")
+            raise RuntimeError(f"'{self.site_name}' 검색 응답을 해석할 수 없습니다 (HTTP {status}) — 진단 파일: {path}")
+        if not isinstance(data, dict) or (data.get("errType") and not data.get("data")):
+            msg = data.get("errMsg") if isinstance(data, dict) else None
+            path = self.save_debug("검색API", text, ext="json")
+            raise RuntimeError(f"'{self.site_name}' 검색 오류: {msg or f'HTTP {status}'} — 진단 파일: {path}")
+        groups = data.get("data") or []
+        return groups if isinstance(groups, list) else []
 
     async def search(self, query: str, max_results: int = 10) -> list:
         await self._ensure_session()
+        token = self._access_token()
+        if not token:
+            raise LoginError(f"'{self.site_name}' 로그인 토큰(userAccessToken)이 없습니다 — 로그인 정보를 확인하세요")
+
+        groups = []
+        for page in range(1, self.MAX_PAGES + 1):
+            page_groups = await self._fetch_groups(token, query, page)
+            groups.extend(page_groups)
+            if len(page_groups) < self.PAGE_SIZE or len(groups) >= max_results * 3:
+                break
 
         search_url = f"{self.SEARCH_URL}?searchKey=all&searchVal={quote(query)}"
-        async with self.session.get(search_url, headers={
-            **self._headers, "Referer": self.BASE,
-        }) as resp:
-            status = resp.status
-            html = await resp.text()
-            if not str(resp.url).startswith(self.BASE):
-                raise LoginError(f"'{self.site_name}' 로그인 세션이 없어 로그인 페이지로 이동했습니다")
-        if status == 404 or "This page could not be found" in html:
-            path = self.save_debug("검색_404", html)
-            raise RuntimeError(f"'{self.site_name}' 검색 페이지 주소가 바뀐 것 같습니다 (HTTP {status}) — 진단 파일: {path}")
-
-        soup = BeautifulSoup(html, "html.parser")
-        products = []
-
-        # 상품 카드: div.item_result_box__<해시>. CSS Modules 해시는 재배포마다
-        # 바뀌므로(v4.0: App Router 재배포 확인) 접두사로 매칭
-        for item in soup.select('div[class*="item_result_box__"]')[:max_results * 3]:
-            try:
-                title_el = item.select_one('[class*="item_title__"]')
-                name = self.clean_text(title_el.get_text(" ")) if title_el else ""
-                if not name:
-                    continue
-
-                is_soldout = any(c.startswith("item_soldout__") for c in item.get("class", []))
-
-                price = 0
-                price_el = item.select_one('[class*="item_won__"]')
-                if price_el:
-                    price = self.extract_price(price_el.get_text())
-
-                maker_el = item.select_one('[class*="item_info_box__"] [class*="item_name__"]')
-                maker = self.clean_text(maker_el.get_text()) if maker_el else ""
-
-                img_el = item.select_one('[class*="item_thumb__"] img')
-                img_url = img_el.get("src", "") if img_el else None
-                if img_url and img_url.startswith("/"):
-                    img_url = f"{self.BASE}{img_url}"
-
-                extra = {}
-                if maker:
-                    extra["제조사"] = maker
-
-                products.append(Product(
-                    name=name,
-                    price=price,
-                    unit_price=None,
-                    url=search_url,
-                    site_name=self.site_name,
-                    image_url=img_url,
-                    in_stock=(not is_soldout) and price > 0,
-                    extra_info=extra,
-                ))
-            except Exception:
+        products, seen = [], set()
+        for group in groups:
+            if not isinstance(group, dict):
                 continue
-
-        if not products:
-            products = self._parse_flight(html, search_url)
-
-        # 그래도 0건이고 "검색 결과 없음" 안내도 없으면 구조 변경으로 보고 응답 저장
-        if not products and not re.search(r"검색\s*결과가\s*없|결과가\s*없습니다|검색된\s*상품이\s*없", html):
-            path = self.save_debug("검색결과", html)
-            raise RuntimeError(f"'{self.site_name}' 검색 결과에서 상품 목록을 찾지 못했습니다(사이트 구조 변경 가능) — 진단 파일: {path}")
+            group_name = self.clean_text(group.get("groupNm") or "")
+            maker = self.clean_text(group.get("mafcNm") or "")
+            for master in group.get("goodsMasterList") or []:
+                try:
+                    code = master.get("goodsMasterCd") or ""
+                    if code and code in seen:
+                        continue
+                    seen.add(code)
+                    base_name = self.clean_text(master.get("goodsNm") or group_name)
+                    remark = self.clean_text(master.get("goodsNmRemark") or "")
+                    stnd = self.clean_text(master.get("goodsStnd") or "")
+                    unit = self.clean_text(f"{master.get('goodsUnit') or ''}{master.get('goodsUnitRemark') or ''}")
+                    name = " ".join(x for x in (f"{base_name}{remark}", stnd, unit) if x)
+                    price = self.extract_price(str(master.get("lastPrice") or "").split(".")[0])
+                    if not name:
+                        continue
+                    soldout = master.get("soldOutYn") == "Y" or master.get("vcServiceYn") != "Y"
+                    img = master.get("imgPath") or group.get("imgPath") or ""
+                    img_url = img if img.startswith("http") else (self.IMG_BASE + img.lstrip("/") if img else None)
+                    extra = {"제조사": maker} if maker else {}
+                    if group.get("bohPrice"):
+                        extra["약가"] = f"₩{self.extract_price(str(group['bohPrice']).split('.')[0]):,}"
+                    products.append(Product(
+                        name=name, price=price,
+                        unit_price=" ".join(x for x in (stnd, unit) if x) or None,
+                        url=f"{search_url}&goodsMasterCd={quote(code)}" if code else search_url,
+                        site_name=self.site_name, image_url=img_url,
+                        in_stock=(not soldout) and price > 0, extra_info=extra,
+                    ))
+                except Exception:
+                    continue
 
         products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
         return products[:max_results]
-
 
 class DapMallCrawler(BaseCrawler):
     """
@@ -3315,9 +3303,15 @@ class DspMallCrawler(BaseCrawler):
             except Exception:
                 continue
 
-        # 0건인데 "검색 결과 없음" 안내도 없으면 구조 변경으로 보고 응답 저장
-        if not products and not re.search(
-            r"검색\s*결과가?\s*없|결과가\s*없|상품이\s*없", html):
+        # 0건인데 "검색 결과 없음" 안내도 없으면 구조 변경으로 보고 응답 저장.
+        # 실제 결과 없음 페이지(v7.4, 사용자 진단 파일): div.goods_no_data
+        # "상품이 존재하지 않습니다." + strong.search_text_result "검색결과 0 개"
+        no_result = (
+            soup.select_one(".goods_no_data") is not None
+            or re.search(r"상품이\s*존재하지\s*않|검색\s*결과가?\s*없|결과가\s*없|상품이\s*없", html)
+            or re.search(r"검색결과\s*(?:<!--.*?-->\s*)?0\s*개", html, re.S)
+        )
+        if not products and not no_result:
             path = self.save_debug("검색결과", html)
             raise RuntimeError(
                 f"'{self.site_name}' 검색 결과에서 상품 목록을 찾지 못했습니다"
@@ -3343,6 +3337,12 @@ class PharmPayMallCrawler(BaseCrawler):
         rtnCode != "OK"면 실패(rtnMessage를 alert, E0001/E0002 등).
       - JDINS.sendAjaxJson은 rtnURL이 있으면 window.location으로 이동하므로
         브라우저와 같게 rtnURL을 GET해 로그인 확인 페이지를 거친다.
+      - (v7.4 확인) login_confirm.aspx는 JS로 쿠키를 심는다:
+          jdins.setCookie("loginHash", "<hash>"); jdins.setCookie("userCode", "MEM...")
+        → $.cookie(key, value, {path:'/', domain: location.hostname}), 값은
+        encodeURIComponent. 이 두 쿠키가 없으면 메인(/usr/umain/umain.aspx)은
+        302 → /isLogin.aspx, 검색 .json은 302 → /logOutDiscon.json (비로그인
+        실측). v7.3은 JS를 실행하지 않아 쿠키가 빠진 채 검색해 0건이었음.
 
     검색 (실계정 DevTools 캡쳐로 확인됨, '마스크' 검색):
       - POST /usr/UPT/UPT001R1.json (form-urlencoded, 값은 JSON 문자열)
@@ -3411,14 +3411,39 @@ class PharmPayMallCrawler(BaseCrawler):
             msg = rm.get("rtnMessage") or f"오류 코드 {rtn_code}"
             raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
 
-        # 브라우저처럼 rtnURL(/login_confirm.aspx?loginHash=...)로 이동해 로그인 완료
+        # 브라우저처럼 rtnURL(/login_confirm.aspx?loginHash=...)로 이동해 로그인 완료.
+        # ⚠️ 이 페이지는 서버 쿠키가 아니라 JS(jdins.setCookie → $.cookie, path=/,
+        # domain=hostname)로 loginHash·userCode 쿠키를 심은 뒤 메인으로 이동함.
+        # JS를 실행하지 않는 aiohttp에선 두 쿠키가 빠져, 이후 .json 요청이 전부
+        # 302 → logOutDiscon.json으로 튕겨 검색이 안 됐음 → 같은 쿠키를 직접 설정.
         rtn_url = rm.get("rtnURL")
-        if rtn_url:
-            async with self.session.get(
-                urljoin(self.BASE + "/", rtn_url),
-                headers={**self._headers, "Referer": f"{self.BASE}/login.aspx"},
-            ) as resp:
-                await resp.read()
+        if not rtn_url:
+            raise LoginError(f"'{self.site_name}' 로그인 실패: 응답에 rtnURL이 없습니다.")
+        confirm_url = urljoin(self.BASE + "/", rtn_url)
+        async with self.session.get(
+            confirm_url,
+            headers={**self._headers, "Referer": f"{self.BASE}/login.aspx"},
+        ) as resp:
+            confirm_html = await resp.text(errors="replace")
+
+        js_cookies = dict(re.findall(r'jdins\.setCookie\(\s*"(\w+)"\s*,\s*"([^"]*)"', confirm_html))
+        query = parse_qs(urlparse(confirm_url).query)
+        for key in ("loginHash", "userCode"):
+            value = js_cookies.get(key) or (query.get(key) or [""])[0]
+            if not value:
+                raise LoginError(f"'{self.site_name}' 로그인 실패: {key} 값을 찾지 못했습니다.")
+            self.session.cookie_jar.update_cookies(
+                {key: quote(value, safe="!*'()-_.~")}, response_url=YarlURL(self.BASE + "/"))
+
+        # 브라우저가 다음으로 여는 메인 페이지 — 비로그인이면 302 → isLogin.aspx
+        async with self.session.get(
+            self.MAIN_URL, headers={**self._headers, "Referer": confirm_url}, allow_redirects=False,
+        ) as resp:
+            main_status = resp.status
+            main_loc = resp.headers.get("Location", "")
+            await resp.read()
+        if main_status in (301, 302, 303, 307, 308) and ("isLogin" in main_loc or "login" in main_loc.lower()):
+            raise LoginError(f"'{self.site_name}' 로그인 응답은 성공이지만 메인 페이지 접근이 거부됩니다 ({main_loc})")
         self.logged_in = True
 
     async def verify_login(self) -> bool:
@@ -3461,9 +3486,17 @@ class PharmPayMallCrawler(BaseCrawler):
                 "Referer": self.MAIN_URL,
                 "Origin": self.BASE,
             },
+            allow_redirects=False,
         ) as resp:
             status = resp.status
+            location = resp.headers.get("Location", "")
             body = await resp.text()
+
+        # 세션이 없거나 끊기면 302 → /logOutDiscon.json (확인됨)
+        if status in (301, 302, 303, 307, 308):
+            if "logOut" in location or "login" in location.lower():
+                raise LoginError(f"'{self.site_name}' 로그인 세션이 끊겼습니다 ({location}) — 다시 검색하거나 로그인 정보를 확인하세요")
+            raise RuntimeError(f"'{self.site_name}' 검색 요청이 다른 주소로 이동했습니다 (HTTP {status}, {location})")
 
         try:
             data = json.loads(body)
