@@ -3,7 +3,7 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v8.0
+## 현재 버전: v8.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -165,7 +165,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v8.0.py
+python wholesale_price_finder_v8.1.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -195,10 +195,14 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v8.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v8.1.py
 ```
 
 ## 변경 이력
+- v8.1 — 팜페이몰: 결과가 있는 제품도 '오류'로 뜨던 문제 수정. 검색 응답 `rtnCode`가 "OK"가
+  아니면 전부 오류 처리했으나, 사이트 JS(`Jdins.sendAjaxJson`)는 `rtnCode=="ERR"`만 오류로 봄.
+  상품 배열이 있으면 성공, 상품이 없을 때만 ERR/E코드를 오류로 표시(E9999는 세션 종료 안내).
+  응답 BOM 허용, 2페이지 이후 실패 시 1페이지 결과 유지, 가격·재고 "180.00"/"1,200" 형태 변환.
 - v8.0 — UI 개선 2건(데스크탑 앱). 전체 테마를 어두운 남색 계열에서 밝은 톤(연회색 배경·
   흰 카드/표·진한 글자)으로 변경하고 입력창·메모장·요약 카드에 얇은 테두리 추가.
   검색 결과 표에 상품 이미지(썸네일) 열 추가 — 검색 바의 "🖼 이미지 숨기기/보기" 버튼으로
