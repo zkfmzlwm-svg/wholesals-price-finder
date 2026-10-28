@@ -7,3 +7,6 @@ memo.dat
 debug/
 *.key
 .wholesale_finder_key
+
+# 약학정보원·드럭인포 이미지 검색 캐시 (v10.0)
+image_lookup_cache.json
