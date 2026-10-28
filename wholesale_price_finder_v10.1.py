@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v10.0 — Windows GUI
+도매 최저가 비교 프로그램 v10.1 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v10.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v10.1.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,21 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v10.1 — 사용자 이미지 진단 파일('쏠라' 검색) 반영.
+         - 이미지가 실패(403/404 등)하면 다음 후보로 넘어감: 자체 이미지 → 자체 대체
+           주소(Product.image_alts) → 약학정보원/드럭인포 → 다른 도매 사이트. v10.0은
+           자체 이미지 주소가 있으면 실패해도 대체하지 않았고, 실패한 이미지를 다른
+           상품의 대체 이미지로 빌려주기도 했음(바로팜·스마트팜에 광동몰 403 이미지).
+         - 광동몰: CloudFront(d2vo4q2nx9xc96.cloudfront.net)가 403인 이미지도 같은 경로를
+           kdshop.co.kr에서 받으면 200(실측) → 대체 주소로 추가. ".../goods/small/527869"
+           처럼 파일명 없이 상품번호로 끝나는 주소는 이미지 없음(사이트도 no_145.gif).
+         - 스마트팜: 목록의 /FileFolder/Product_smartpharm/... 이미지는 사이트에서도 404
+           (브라우저는 no36.gif), 같은 파일이 www.aropamall.co.kr/FileFolder/Product/...에
+           있음(진단 파일 2건 실측 200) → 아로파몰 주소 우선, 원래 주소는 대체.
+         - 상품명 매칭: 짧은 이름 최소 4자 → 3자("쏠라씨"↔"쏠라씨정"), 같은 이름 후보
+           중 괄호 안 맛·용도 표시가 같은 이미지 우선("쏠라씨(블루베리)"엔 블루베리).
+         - 참고: '쏠라씨'는 약학정보원·드럭인포 모두 검색 결과 0건(실측) — 다른 도매
+           사이트 이미지로 대체됨.
   v10.0 — 사용자 이미지 진단 파일('모드콜' 검색) 분석 결과 반영.
          - (버그) 이미지가 "이미지 해석 실패"로 안 보이던 원인: v9.0이
            resp.content.read(3MB)로 받았는데, 이 함수는 '지금 도착한 만큼'(약 16KB)만
@@ -368,7 +383,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "10.0"
+__version__ = "10.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -473,6 +488,7 @@ class Product:
     url: str
     site_name: str
     image_url: Optional[str] = None
+    image_alts: list = field(default_factory=list)  # image_url 실패 시 시도할 주소 (v10.1)
     min_order_qty: Optional[int] = None
     shipping_fee: Optional[int] = None
     in_stock: bool = True
@@ -2446,6 +2462,7 @@ class SmartPharmCrawler(BaseCrawler):
     LOGIN_URL  = "https://www.smartpharm.co.kr/Login/Login_Proc.asp"
     GOODS_URL  = "https://www.smartpharm.co.kr/Goods/Goods.asp"
     SEARCH_URL = "https://www.smartpharm.co.kr/Goods/Goods_List.asp"
+    AROPAMALL_IMG = "https://www.aropamall.co.kr/FileFolder/Product/"
 
     async def login(self):
         username = self.credentials.get("username", "")
@@ -2580,6 +2597,14 @@ class SmartPharmCrawler(BaseCrawler):
                 # 이미지 (v9.0): "../FileFolder/..."처럼 목록 페이지 기준 상대 주소도 있을 수
                 # 있어 페이지 주소로 urljoin. 플레이스홀더(no36.gif)는 abs_img_url이 거름.
                 img_url = self.first_img_url(row, search_url)
+                # v10.1: 목록의 /FileFolder/Product_smartpharm/... 이미지는 사이트에서도 404
+                # (브라우저는 NoImage()로 no36.gif 표시), 같은 파일이 아로파몰(같은 플랫폼)
+                # www.aropamall.co.kr/FileFolder/Product/... 에 있음(사용자 진단 파일 2건
+                # 실측 200). 아로파몰 주소를 먼저, 원래 주소는 대체 후보로.
+                img_alts = []
+                m_img = re.search(r"/FileFolder/Product_smartpharm/(.+)$", img_url or "")
+                if m_img:
+                    img_url, img_alts = f"{self.AROPAMALL_IMG}{m_img.group(1)}", [img_url]
                 self.note_img_sample(str(row), missing=not img_url)
 
                 display_name = f"{name} ({spec})" if spec else name
@@ -2595,6 +2620,7 @@ class SmartPharmCrawler(BaseCrawler):
                     url=prod_url,
                     site_name=self.site_name,
                     image_url=img_url,
+                    image_alts=img_alts,
                     in_stock=True,
                     extra_info=extra,
                 ))
@@ -3169,6 +3195,19 @@ class KDShopCrawler(BaseCrawler):
     SEARCH_URL  = "https://kdshop.co.kr/goods/category.do"
     DETAIL_URL  = "https://kdshop.co.kr/goods/list_detail.do"
 
+    def _fix_img(self, url):
+        """(이미지 주소, 대체 후보) — v10.1, 사용자 진단 파일('쏠라') 실측:
+        - 이미지 없는 상품은 ".../goods/small/527869"처럼 파일명 없이 상품번호로 끝남
+          (CloudFront 403, 사이트도 onerror로 no_145.gif 표시) → 주소 없음
+        - CloudFront(d2vo4q2nx9xc96.cloudfront.net)가 403인 이미지도 같은 경로를
+          kdshop.co.kr 원본 서버에서 받으면 200 → 원본 주소를 대체 후보로"""
+        if not url or "." not in url.rstrip("/").rsplit("/", 1)[-1]:
+            return None, []
+        u = urlparse(url)
+        if u.netloc.endswith("cloudfront.net"):
+            return url, [f"{self.BASE}{u.path}"]
+        return url, []
+
     def _member_token(self) -> str:
         for c in self.session.cookie_jar:
             if c.key == "MEMBER_TOKEN":
@@ -3273,11 +3312,13 @@ class KDShopCrawler(BaseCrawler):
                 hidden = li.select_one(f"#gImgFullpath{gno}")
                 if not img_url and hidden:
                     img_url = self.abs_img_url(hidden.get("value"), search_url)
+                img_url, img_alts = self._fix_img(img_url)
                 self.note_img_sample(str(li), missing=not img_url)
                 products.append(Product(
                     name=name, price=price, unit_price=None, url=search_url,
                     site_name=self.site_name,
                     image_url=img_url,
+                    image_alts=img_alts,
                     extra_info={**extra, "gno": gno},
                 ))
             except Exception:
@@ -4244,15 +4285,22 @@ def product_name_terms(name: str) -> list:
     return [t for t in terms if len(t) >= 3]
 
 
+def product_variant_tags(name: str) -> set:
+    """괄호 안의 숫자 없는 구분 표시(맛·용도 등) — 예: "쏠라씨(블루베리) (2g*80T)" → {"블루베리"},
+    "모드콜노즈시럽(소아용) 5ml" → {"소아용"}. 같은 이름 후보 중 이미지 고를 때 우선순위용"""
+    return {re.sub(r"\s+", "", t).lower() for t in re.findall(r"\(([^()\d]+)\)", name or "")}
+
+
 def name_match_score(a: str, b: str) -> float:
-    """두 상품명 키의 일치도: 같으면 1.0, 한쪽이 다른 쪽에 포함되고(짧은 쪽 4자 이상)
-    길이 비율 0.7 이상이면 그 비율(예: "모드콜에스연질"↔"모드콜에스연질캡슐" 0.78), 아니면 0"""
+    """두 상품명 키의 일치도: 같으면 1.0, 한쪽이 다른 쪽에 포함되고(짧은 쪽 3자 이상)
+    길이 비율 0.7 이상이면 그 비율(예: "모드콜에스연질"↔"모드콜에스연질캡슐" 0.78,
+    "쏠라씨"↔"쏠라씨정" 0.75 — v10.1에서 4자→3자), 아니면 0. "모드콜"↔"모드콜시럽"(0.6)은 불일치"""
     if not a or not b:
         return 0.0
     if a == b:
         return 1.0
     short, long_ = sorted((a, b), key=len)
-    if len(short) >= 4 and short in long_ and len(short) / len(long_) >= 0.7:
+    if len(short) >= 3 and short in long_ and len(short) / len(long_) >= 0.7:
         return len(short) / len(long_)
     return 0.0
 
@@ -4869,52 +4917,67 @@ class App(tk.Tk):
 
         self._last_query = query
         self._last_errors = errors
-        self._img_borrow = self._match_borrowed_images()
         self._render_products()
 
     # ──────── 이미지 없는 상품의 대체 이미지 (v10.0) ────────
     # 우선순위: 자기 이미지 → 약학정보원 → 드럭인포 → 다른 도매 사이트의 같은 상품 이미지
+    def _own_imgs(self, p) -> list:
+        """상품 자체 이미지 후보 (image_url, image_alts)"""
+        return [u for u in [p.image_url, *p.image_alts] if (u or "").startswith("http")]
+
+    def _own_ok(self, p) -> bool:
+        """자체 이미지 후보 중 실패하지 않은 것이 있는지(받는 중 포함)"""
+        return any(u not in self._thumb_fail for u in self._own_imgs(p))
+
     def _match_borrowed_images(self) -> dict:
         """이미지 주소가 없는 상품(서울약사신협 목록은 이미지 자체가 없음 — 사용자 진단
         파일)에 같은 상품명인 다른 상품의 이미지를 연결. 이름이 같으면 우선, 아니면 한
         쪽 이름이 다른 쪽에 포함되고 길이 비율 0.7 이상(예: "모드콜에스연질"↔
         "모드콜에스연질캡슐", "종근모드콜노즈시럽"↔"모드콜노즈시럽")인 것 중 가장 비슷한 것."""
-        donors = {}
+        donors = []  # (키, 구분 표시, (URL, 사이트))
         for p in self._all_products:
-            if (p.image_url or "").startswith("http"):
-                k = product_name_key(p.name)
-                if len(k) >= 3:
-                    donors.setdefault(k, (p.image_url, p.site_name))
+            ok = [u for u in self._own_imgs(p) if u not in self._thumb_fail]
+            k = product_name_key(p.name)
+            if ok and len(k) >= 3:
+                donors.append((k, product_variant_tags(p.name), (ok[0], p.site_name)))
         borrow = {}
         for idx, p in enumerate(self._all_products):
-            if (p.image_url or "").startswith("http"):
+            if self._own_ok(p):
                 continue
             k = product_name_key(p.name)
             if len(k) < 3:
                 continue
-            best, best_score = None, 0.0
-            for dk, donor in donors.items():
-                score = name_match_score(k, dk)
-                if score > best_score:
-                    best, best_score = donor, score
+            tags = product_variant_tags(p.name)
+            # 이름 일치도 → 맛·용도 표시 일치(v10.1: "쏠라씨(블루베리)"엔 레몬보다 블루베리 이미지)
+            best, best_rank = None, (0.0, 0)
+            for dk, dtags, donor in donors:
+                rank = (name_match_score(k, dk), len(tags & dtags))
+                if rank[0] > 0 and rank > best_rank:
+                    best, best_rank = donor, rank
             if best:
                 borrow[idx] = best
         return borrow
 
     def _img_of(self, idx: int, p) -> tuple:
-        """(표시할 이미지 URL, 대체 출처 또는 "") — 자기 이미지 → 약학정보원/드럭인포 → 다른 사이트"""
-        if (p.image_url or "").startswith("http"):
-            return p.image_url, ""
+        """(표시할 이미지 URL, 대체 출처 또는 "") — 자기 이미지(대체 주소 포함) → 약학정보원/
+        드럭인포 → 다른 사이트. v10.1: 앞 후보가 실패(403/404 등)하면 다음 후보로 넘어감
+        (v10.0은 자기 이미지 주소가 있으면 실패해도 대체하지 않았음)."""
+        cands = [(u, "") for u in self._own_imgs(p)]
         hit = self._img_finder.cached(product_name_key(p.name))
         if hit and hit[0]:
-            return hit
-        return self._img_borrow.get(idx, ("", ""))
+            cands.append(hit)
+        if idx in self._img_borrow:
+            cands.append(self._img_borrow[idx])
+        for u, src in cands:
+            if u not in self._thumb_fail:
+                return u, src
+        return cands[-1] if cands else ("", "")
 
     def _lookup_ext_images(self):
         """이미지 없는 상품의 이름으로 약학정보원·드럭인포를 백그라운드 검색(캐시에 없는 것만)"""
         keys = {}
         for idx, p in self._visible_products():
-            if (p.image_url or "").startswith("http"):
+            if self._own_ok(p):
                 continue
             k = product_name_key(p.name)
             if len(k) >= 3 and k not in self._ext_pending and self._img_finder.cached(k) is None:
@@ -4942,7 +5005,10 @@ class App(tk.Tk):
         self._refresh_row_images()
 
     def _refresh_row_images(self):
-        """표의 각 행에 표시할 이미지 URL을 다시 정해 썸네일을 붙이고 안 받은 것은 받음"""
+        """표의 각 행에 표시할 이미지 URL을 다시 정해 썸네일을 붙이고 안 받은 것은 받음.
+        실패한 이미지가 생기면 다시 불려 다음 후보(대체 주소·약학정보원·다른 사이트)로 넘어감"""
+        self._refresh_scheduled = False
+        self._img_borrow = self._match_borrowed_images()
         self._thumb_rows = {}
         for idx, p in self._visible_products():
             iid = f"p_{idx}"
@@ -4952,7 +5018,13 @@ class App(tk.Tk):
             if img_url.startswith("http"):
                 self._thumb_rows.setdefault(img_url, []).append(iid)
         if self.show_images:
+            self._lookup_ext_images()
             self._load_thumbnails()
+
+    def _schedule_refresh(self):
+        if not getattr(self, "_refresh_scheduled", False):
+            self._refresh_scheduled = True
+            self.after(50, self._refresh_row_images)
 
     def _on_toggle_soldout(self):
         """품절 제외 토글 → 설정 저장 후 현재 결과 다시 표시"""
@@ -5016,8 +5088,6 @@ class App(tk.Tk):
                 p.unit_price or "-", maker, stock_txt
             ))
         self._refresh_row_images()
-        if self.show_images:
-            self._lookup_ext_images()
 
         # 상태 바
         hidden_txt = f" (품절 {hidden_cnt}개 숨김)" if hidden_cnt else ""
@@ -5126,10 +5196,11 @@ class App(tk.Tk):
         todo_set = set(todo)
         referers, site_of = {}, {}
         for p in self._all_products:
-            if p.image_url in todo_set:
-                site_of.setdefault(p.image_url, p.site_name)
-                if p.url.startswith("http"):
-                    referers.setdefault(p.image_url, p.url)
+            for u in self._own_imgs(p):
+                if u in todo_set:
+                    site_of.setdefault(u, p.site_name)
+                    if p.url.startswith("http"):
+                        referers.setdefault(u, p.url)
         by_site = {}
         for u in todo:
             by_site.setdefault(site_of.get(u, ""), []).append(u)
@@ -5199,7 +5270,8 @@ class App(tk.Tk):
 
     def _on_thumb_batch_done(self):
         """(메인 스레드) 받을 이미지가 다 끝나면 진단 파일 저장·상태줄 갱신"""
-        if self._thumb_pending or self._ext_pending or not self._last_query:
+        if (self._thumb_pending or self._ext_pending or not self._last_query
+                or getattr(self, "_refresh_scheduled", False)):
             return
         if not self._img_diag_path and self._img_status_txt():
             self._write_img_diag()
@@ -5243,6 +5315,7 @@ class App(tk.Tk):
                     self.tree.item(iid, image=photo)
         else:
             self._thumb_fail[url] = why or "이미지 해석 실패"
+            self._schedule_refresh()
         if not self._thumb_pending:
             self._on_thumb_batch_done()
 
