@@ -22,11 +22,19 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
            health.kr/바로팜/플랫팜 이미지 5개 모두 16KB만 받으면 실패, 끝까지 받으면
            정상(JPEG/BMP/PNG). iter_chunked로 끝까지(최대 8MB) 받도록 수정 — 광동몰·
            새로팜·바로팜·플랫팜 이미지가 이 버그로 안 보였음.
-         - (기능) 이미지 주소가 없는 상품에 같은 상품명인 다른 상품의 이미지를 대신
-           표시. 서울약사신협은 목록에 상품 이미지가 아예 없고(진단 샘플: 재고 버튼
-           jaego.gif뿐), 바로팜도 상품 묶음 중 첫 상품만 이미지를 줌. 상품명에서
-           괄호·규격·구분자 뒤를 뗀 키로 비교(같으면 우선, 아니면 포함 관계 + 길이 비율
-           0.7 이상). 진단 파일엔 "<출처> 대체 이미지"로 표시.
+         - (기능) 이미지 주소가 없는 상품에 대체 이미지 표시. 서울약사신협은 목록에
+           상품 이미지가 아예 없고(진단 샘플: 재고 버튼 jaego.gif뿐), 바로팜도 상품
+           묶음 중 첫 상품만 이미지를 줌. 우선순위: 자기 이미지 → 약학정보원(health.kr)
+           → 드럭인포(druginfo.co.kr) → 다른 도매 사이트의 같은 상품 이미지.
+           · 약학정보원: 공개 API GET /api/searchDrug?drugName= (사이트 JS로 확인)의
+             pack_img(포장)·drug_pic(낱알). 드럭인포: GET /search2/search.aspx?q=(EUC-KR)
+             결과의 pro-img-link "pid,파일명" → druginfo.co.kr/drugimg/파일명 (사이트 JS
+             확인). 둘 다 로그인 불필요(실측). DrugImageFinder, 결과는
+             image_lookup_cache.json에 캐시(찾음 30일·없음 7일), 표시 후 백그라운드 검색.
+           · 상품명 비교 키(product_name_key): 괄호·규격·구분자 뒤를 떼고 비교 — 같으면
+             우선, 아니면 포함 관계 + 길이 비율 0.7 이상. 앞에 제조사 약칭이 붙은 이름
+             ("종근 모드콜노즈시럽")은 뗀 이름으로도 검색.
+           · 진단 파일엔 "<출처> 대체 이미지"로 표시.
          - 팜페이몰: 이미지 없는 상품은 img2가 파일명 없는 "/imageFiles/product"로 옴
            → 요청 시 10초 시간 초과. 파일명 없는 경로는 주소 없음으로 처리.
          - 새로팜: lazy-load 속성·상대 주소 공통 처리 적용.
@@ -4207,6 +4215,155 @@ async def search_site(sc, query, max_results):
     finally:
         if crawler: await crawler.close()
 
+# ═══════════════════════════════════════════════════════════════
+# 4-1. 이미지 없는 상품 → 약학정보원·드럭인포 이미지 (v10.0)
+# ═══════════════════════════════════════════════════════════════
+_UNIT_RE = r"\d+(?:\.\d+)?\s*(?:mg|g|ml|l|c|t|정|캡슐|포|병|개|매|밀리|그램|리터)"
+
+
+def product_name_key(name: str) -> str:
+    """상품명 비교 키: 괄호·규격·구분자 뒤를 떼고 한글/영문/숫자만.
+    예) "모드콜에스연질캡슐-(10C)종합감기::특가", "모드콜에스연질캡슐 /PTP (200밀리그램(10캡슐))"
+        → "모드콜에스연질캡슐" """
+    n = name or ""
+    for _ in range(2):  # 중첩 괄호 "(200밀리그램(10캡슐))"
+        n = re.sub(r"\([^()]*\)|\[[^\[\]]*\]", " ", n)
+    n = re.split(r"[-/:,]|\s\d|" + _UNIT_RE, n, flags=re.I)[0]
+    return re.sub(r"[^0-9a-z가-힣]", "", n.lower())
+
+
+def product_name_terms(name: str) -> list:
+    """외부 검색어 후보: 상품명 키, 그리고 앞에 짧은 제조사 약칭이 붙은 이름이면 그걸 뗀 키
+    (예: "종근 모드콜노즈시럽/100ml" → ["종근모드콜노즈시럽", "모드콜노즈시럽"])"""
+    terms = [product_name_key(name)]
+    parts = (name or "").split(None, 1)
+    if len(parts) == 2 and len(parts[0]) <= 3:
+        alt = product_name_key(parts[1])
+        if len(alt) >= 3 and alt not in terms:
+            terms.append(alt)
+    return [t for t in terms if len(t) >= 3]
+
+
+def name_match_score(a: str, b: str) -> float:
+    """두 상품명 키의 일치도: 같으면 1.0, 한쪽이 다른 쪽에 포함되고(짧은 쪽 4자 이상)
+    길이 비율 0.7 이상이면 그 비율(예: "모드콜에스연질"↔"모드콜에스연질캡슐" 0.78), 아니면 0"""
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    short, long_ = sorted((a, b), key=len)
+    if len(short) >= 4 and short in long_ and len(short) / len(long_) >= 0.7:
+        return len(short) / len(long_)
+    return 0.0
+
+
+IMAGE_LOOKUP_CACHE_PATH = Path(__file__).parent / "image_lookup_cache.json"
+
+
+class DrugImageFinder:
+    """상품명으로 약학정보원(health.kr) → 드럭인포(druginfo.co.kr) 순서로 제품 이미지를 찾음.
+    둘 다 로그인 없이 공개 검색 가능(2026-10 실측).
+
+    약학정보원: GET https://www.health.kr/api/searchDrug?page=1&limit=20&drugName=<이름>
+      — 사이트 JS(검색 결과 페이지, 파라미터 키 drug_name→"drugName")로 확인. JSON
+      items[].drug_name / pack_img(포장 사진, common.health.kr/.../pack_img/P_*.jpg) /
+      drug_pic(낱알 사진, .../sb_photo/big3/*.jpg). 포장 사진을 우선 사용.
+    드럭인포: GET https://druginfo.co.kr/search2/search.aspx?q=<EUC-KR 이름> (EUC-KR 페이지)
+      — 결과 행의 <a class="pro-img-link" title="제품명 규격">pid,파일명</a>를 사이트 JS
+      (di-search2: img.src = '//www.druginfo.co.kr/drugimg/' + 파일명)대로 조합.
+      www 없는 druginfo.co.kr/drugimg/ 도 같은 이미지(200)이며 www는 접속이 불안정해 이쪽
+      사용. 이미지 없는 제품은 파일명이 nothing.gif.
+    결과(없음 포함)는 image_lookup_cache.json에 캐시(찾음 30일, 없음 7일)."""
+
+    HEALTH_KR_API   = "https://www.health.kr/api/searchDrug"
+    DRUGINFO_SEARCH = "https://druginfo.co.kr/search2/search.aspx"
+    DRUGINFO_IMG    = "https://druginfo.co.kr/drugimg/"
+    HIT_DAYS, MISS_DAYS = 30, 7
+    DRUGINFO_ROW_RE = re.compile(r'<a class="pro-img-link" title="([^"]*)"[^>]*>\s*\d+,([^<\s]+)\s*</a>')
+
+    def __init__(self, path: Path = IMAGE_LOOKUP_CACHE_PATH):
+        self.path = path
+        try:
+            self.cache = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            self.cache = {}
+
+    def cached(self, key: str):
+        """캐시된 (URL, 출처) — URL ""는 '찾아봤지만 없음'. 캐시가 없거나 만료면 None"""
+        e = self.cache.get(key)
+        if not isinstance(e, dict):
+            return None
+        days = self.HIT_DAYS if e.get("url") else self.MISS_DAYS
+        if time.time() - e.get("ts", 0) > days * 86400:
+            return None
+        return e.get("url", ""), e.get("src", "")
+
+    def save(self):
+        try:
+            self.path.write_text(json.dumps(self.cache, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _best(key: str, candidates) -> str:
+        """(제품명, 이미지 URL) 후보 중 상품명 키가 가장 잘 맞는 이미지"""
+        best_url, best_score = "", 0.0
+        for name, url in candidates:
+            score = name_match_score(key, product_name_key(name))
+            if url and score > best_score:
+                best_url, best_score = url, score
+        return best_url
+
+    async def _health_kr(self, session, key: str) -> str:
+        params = {"page": "1", "limit": "20", "drugName": key}
+        async with session.get(self.HEALTH_KR_API, params=params,
+                               headers={"Referer": "https://www.health.kr/searchResult"}) as resp:
+            if resp.status != 200:
+                return ""
+            data = await resp.json(content_type=None)
+        items = (data.get("items") or []) if isinstance(data, dict) else []
+        return self._best(key, [(it.get("drug_name") or "", it.get("pack_img") or it.get("drug_pic") or "")
+                                for it in items if isinstance(it, dict)])
+
+    async def _druginfo(self, session, key: str) -> str:
+        url = f"{self.DRUGINFO_SEARCH}?q={quote(key.encode('cp949', 'ignore'))}"
+        async with session.get(url, headers={"Referer": "https://druginfo.co.kr/"}) as resp:
+            if resp.status != 200:
+                return ""
+            html = (await resp.read()).decode("cp949", errors="replace")
+        return self._best(key, [(title, "" if fname.startswith("nothing") else self.DRUGINFO_IMG + fname)
+                                for title, fname in self.DRUGINFO_ROW_RE.findall(html)])
+
+    async def lookup_many(self, keys) -> dict:
+        """키마다 약학정보원 → 드럭인포 순으로 찾아 {키: (URL, 출처)} 반환(캐시에도 저장).
+        keys는 키 목록 또는 {키: [검색어 후보...]} (product_name_terms)"""
+        terms_of = keys if isinstance(keys, dict) else {k: [k] for k in keys}
+        sem = asyncio.Semaphore(4)
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                 "Chrome/125.0.0.0 Safari/537.36"}
+        out = {}
+        async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async def one(key):
+                async with sem:
+                    url, src = "", ""
+                    for name, fn in (("약학정보원", self._health_kr), ("드럭인포", self._druginfo)):
+                        for term in terms_of.get(key) or [key]:
+                            try:
+                                url = await fn(session, term)
+                            except Exception:
+                                url = ""
+                            if url:
+                                break
+                        if url:
+                            src = name
+                            break
+                    out[key] = (url, src)
+                    self.cache[key] = {"url": url, "src": src, "ts": time.time()}
+            await asyncio.gather(*(one(k) for k in terms_of))
+        self.save()
+        return out
+
+
 async def search_all(query, config):
     sites = [s for s in config.get("sites", []) if s.get("enabled", True)]
     if not sites: return []
@@ -4263,6 +4420,8 @@ class App(tk.Tk):
         self._site_img_sample = {}  # 사이트명 → 첫 상품 원본 (진단 파일용)
         self._img_diag_path = ""    # 마지막 이미지 진단 파일 경로
         self._img_borrow = {}       # _all_products 인덱스 → (대체 이미지 URL, 출처 사이트) (v10.0)
+        self._img_finder = DrugImageFinder()  # 약학정보원·드럭인포 이미지 검색 (v10.0)
+        self._ext_pending = set()   # 검색 중인 상품명 키
         self._status_base = ""
 
         # tk 입력 위젯 공통 테두리 (밝은 배경에서 입력칸 구분)
@@ -4713,20 +4872,8 @@ class App(tk.Tk):
         self._img_borrow = self._match_borrowed_images()
         self._render_products()
 
-    # ──────── 이미지 없는 상품 → 다른 사이트의 같은 상품 이미지로 대체 (v10.0) ────────
-    _UNIT_RE = r"\d+(?:\.\d+)?\s*(?:mg|g|ml|l|c|t|정|캡슐|포|병|개|매|밀리|그램|리터)"
-
-    @classmethod
-    def _name_key(cls, name: str) -> str:
-        """상품명 비교 키: 괄호·규격·구분자 뒤를 떼고 한글/영문/숫자만.
-        예) "모드콜에스연질캡슐-(10C)종합감기::특가", "모드콜에스연질캡슐 /PTP (200밀리그램(10캡슐))"
-            → "모드콜에스연질캡슐" """
-        n = name or ""
-        for _ in range(2):  # 중첩 괄호 "(200밀리그램(10캡슐))"
-            n = re.sub(r"\([^()]*\)|\[[^\[\]]*\]", " ", n)
-        n = re.split(r"[-/:,]|\s\d|" + cls._UNIT_RE, n, flags=re.I)[0]
-        return re.sub(r"[^0-9a-z가-힣]", "", n.lower())
-
+    # ──────── 이미지 없는 상품의 대체 이미지 (v10.0) ────────
+    # 우선순위: 자기 이미지 → 약학정보원 → 드럭인포 → 다른 도매 사이트의 같은 상품 이미지
     def _match_borrowed_images(self) -> dict:
         """이미지 주소가 없는 상품(서울약사신협 목록은 이미지 자체가 없음 — 사용자 진단
         파일)에 같은 상품명인 다른 상품의 이미지를 연결. 이름이 같으면 우선, 아니면 한
@@ -4735,36 +4882,77 @@ class App(tk.Tk):
         donors = {}
         for p in self._all_products:
             if (p.image_url or "").startswith("http"):
-                k = self._name_key(p.name)
+                k = product_name_key(p.name)
                 if len(k) >= 3:
                     donors.setdefault(k, (p.image_url, p.site_name))
         borrow = {}
         for idx, p in enumerate(self._all_products):
             if (p.image_url or "").startswith("http"):
                 continue
-            k = self._name_key(p.name)
+            k = product_name_key(p.name)
             if len(k) < 3:
                 continue
-            if k in donors:
-                borrow[idx] = donors[k]
-                continue
-            best, best_ratio = None, 0.7
+            best, best_score = None, 0.0
             for dk, donor in donors.items():
-                short, long_ = sorted((k, dk), key=len)
-                if len(short) >= 4 and short in long_:
-                    ratio = len(short) / len(long_)
-                    if ratio >= best_ratio:
-                        best, best_ratio = donor, ratio
+                score = name_match_score(k, dk)
+                if score > best_score:
+                    best, best_score = donor, score
             if best:
                 borrow[idx] = best
         return borrow
 
     def _img_of(self, idx: int, p) -> tuple:
-        """(표시할 이미지 URL, 대체 출처 사이트 또는 "") — 자기 이미지가 없으면 대체 이미지"""
+        """(표시할 이미지 URL, 대체 출처 또는 "") — 자기 이미지 → 약학정보원/드럭인포 → 다른 사이트"""
         if (p.image_url or "").startswith("http"):
             return p.image_url, ""
-        url, site = self._img_borrow.get(idx, ("", ""))
-        return url, site
+        hit = self._img_finder.cached(product_name_key(p.name))
+        if hit and hit[0]:
+            return hit
+        return self._img_borrow.get(idx, ("", ""))
+
+    def _lookup_ext_images(self):
+        """이미지 없는 상품의 이름으로 약학정보원·드럭인포를 백그라운드 검색(캐시에 없는 것만)"""
+        keys = {}
+        for idx, p in self._visible_products():
+            if (p.image_url or "").startswith("http"):
+                continue
+            k = product_name_key(p.name)
+            if len(k) >= 3 and k not in self._ext_pending and self._img_finder.cached(k) is None:
+                keys[k] = product_name_terms(p.name)
+        if not keys:
+            return
+        self._ext_pending.update(keys)
+        keys_set = set(keys)
+
+        def run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self._img_finder.lookup_many(keys))
+            except Exception:
+                pass
+            finally:
+                loop.close()
+            self.after(0, lambda: self._on_ext_images(keys_set))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_ext_images(self, keys):
+        self._ext_pending.difference_update(keys)
+        self._refresh_row_images()
+
+    def _refresh_row_images(self):
+        """표의 각 행에 표시할 이미지 URL을 다시 정해 썸네일을 붙이고 안 받은 것은 받음"""
+        self._thumb_rows = {}
+        for idx, p in self._visible_products():
+            iid = f"p_{idx}"
+            img_url, _ = self._img_of(idx, p)
+            photo = self._thumb_cache.get(img_url) if img_url.startswith("http") else None
+            self.tree.item(iid, image=photo or "")
+            if img_url.startswith("http"):
+                self._thumb_rows.setdefault(img_url, []).append(iid)
+        if self.show_images:
+            self._load_thumbnails()
 
     def _on_toggle_soldout(self):
         """품절 제외 토글 → 설정 저장 후 현재 결과 다시 표시"""
@@ -4816,7 +5004,6 @@ class App(tk.Tk):
         for c, (base_txt, _) in self._col_headings.items():
             self.tree.heading(c, text=base_txt)
 
-        self._thumb_rows = {}
         for rank, (idx, p) in enumerate(visible, 1):
             stock_txt = "✓" if p.in_stock else "품절"
             price_txt = f"₩{p.price:,}" if p.price > 0 else "가격문의"
@@ -4828,13 +5015,9 @@ class App(tk.Tk):
                 price_txt,
                 p.unit_price or "-", maker, stock_txt
             ))
-            img_url, _ = self._img_of(idx, p)
-            if img_url.startswith("http"):
-                self._thumb_rows.setdefault(img_url, []).append(iid)
-                if self._thumb_cache.get(img_url):
-                    self.tree.item(iid, image=self._thumb_cache[img_url])
+        self._refresh_row_images()
         if self.show_images:
-            self._load_thumbnails()
+            self._lookup_ext_images()
 
         # 상태 바
         hidden_txt = f" (품절 {hidden_cnt}개 숨김)" if hidden_cnt else ""
@@ -4883,6 +5066,8 @@ class App(tk.Tk):
             url, _ = self._img_of(idx, p)
             if not url.startswith("http"):
                 why = "주소 없음"
+                if product_name_key(p.name) in self._ext_pending:
+                    continue
             elif url in self._thumb_fail:
                 why = self._thumb_fail[url]
             else:
@@ -4902,7 +5087,8 @@ class App(tk.Tk):
         by_site = {}
         for idx, p in self._visible_products():
             url, src = self._img_of(idx, p)
-            why = "주소 없음" if not url.startswith("http") else self._thumb_fail.get(url)
+            why = ("주소 없음(약학정보원·드럭인포에도 없음)" if not url.startswith("http")
+                   else self._thumb_fail.get(url))
             if why:
                 if src:
                     why = f"{src} 대체 이미지: {why}"
@@ -5013,7 +5199,7 @@ class App(tk.Tk):
 
     def _on_thumb_batch_done(self):
         """(메인 스레드) 받을 이미지가 다 끝나면 진단 파일 저장·상태줄 갱신"""
-        if self._thumb_pending or not self._last_query:
+        if self._thumb_pending or self._ext_pending or not self._last_query:
             return
         if not self._img_diag_path and self._img_status_txt():
             self._write_img_diag()
