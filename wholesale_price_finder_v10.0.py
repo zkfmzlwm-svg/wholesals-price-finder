@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v9.0 — Windows GUI
+도매 최저가 비교 프로그램 v10.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v9.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v10.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,23 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v10.0 — 사용자 이미지 진단 파일('모드콜' 검색) 분석 결과 반영.
+         - (버그) 이미지가 "이미지 해석 실패"로 안 보이던 원인: v9.0이
+           resp.content.read(3MB)로 받았는데, 이 함수는 '지금 도착한 만큼'(약 16KB)만
+           돌려줌 → 큰 이미지가 잘려 Pillow가 truncated 오류. 실측: 진단 파일의
+           health.kr/바로팜/플랫팜 이미지 5개 모두 16KB만 받으면 실패, 끝까지 받으면
+           정상(JPEG/BMP/PNG). iter_chunked로 끝까지(최대 8MB) 받도록 수정 — 광동몰·
+           새로팜·바로팜·플랫팜 이미지가 이 버그로 안 보였음.
+         - (기능) 이미지 주소가 없는 상품에 같은 상품명인 다른 상품의 이미지를 대신
+           표시. 서울약사신협은 목록에 상품 이미지가 아예 없고(진단 샘플: 재고 버튼
+           jaego.gif뿐), 바로팜도 상품 묶음 중 첫 상품만 이미지를 줌. 상품명에서
+           괄호·규격·구분자 뒤를 뗀 키로 비교(같으면 우선, 아니면 포함 관계 + 길이 비율
+           0.7 이상). 진단 파일엔 "<출처> 대체 이미지"로 표시.
+         - 팜페이몰: 이미지 없는 상품은 img2가 파일명 없는 "/imageFiles/product"로 옴
+           → 요청 시 10초 시간 초과. 파일명 없는 경로는 주소 없음으로 처리.
+         - 새로팜: lazy-load 속성·상대 주소 공통 처리 적용.
+         - 진단 샘플: 이미지 주소가 없는 상품의 원본을 우선 저장, 바로팜·팜페이몰·
+           새로팜도 샘플 저장(이번 진단 파일엔 샘플이 없어 구조 확인 불가였음).
   v9.0 — 결과창 이미지 개선 (서울약사신협·스마트팜·플랫팜·팜스트리트·광동몰·동성몰
          이미지 미표시 신고 대응).
          - 이미지를 받을 때 그 사이트 검색 세션의 로그인 쿠키를 함께 보냄(로그인해야
@@ -343,7 +360,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "9.0"
+__version__ = "10.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -790,10 +807,14 @@ class BaseCrawler(ABC):
                     return url
         return None
 
-    def note_img_sample(self, raw):
-        """첫 상품 원본을 기억 — 이미지가 안 보일 때 진단 파일에 넣어 구조 확인용"""
-        if not self.img_sample and raw is not None:
+    def note_img_sample(self, raw, missing: bool = False):
+        """상품 원본을 기억 — 이미지가 안 보일 때 진단 파일에 넣어 구조 확인용.
+        이미지 주소가 없는 상품(missing=True)의 원본을 우선 남김 (v10.0)"""
+        if raw is None or getattr(self, "_img_sample_missing", False):
+            return
+        if missing or not self.img_sample:
             self.img_sample = (raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False))[:4000]
+            self._img_sample_missing = missing
 
     def full_url(self, path):
         if not path: return self.base_url
@@ -956,13 +977,16 @@ class BaroPharmCrawler(BaseCrawler):
                     if wholesalers_count:
                         extra["도매처 수"] = wholesalers_count
 
+                    img = (item.get("images") or [None])[0] or thumbnail
+                    self.note_img_sample({"group": {k: v for k, v in group.items() if k != "items"},
+                                          "item": item}, missing=not img)
                     products.append(Product(
                         name=name,
                         price=price,
                         unit_price=unit_str if unit_str else None,
                         url=f"{self.WEB_PRODUCT}{quote(query)}",
                         site_name=self.site_name,
-                        image_url=(item.get("images") or [None])[0] or thumbnail,
+                        image_url=img,
                         in_stock=(item.get("total_qty") or 0) > 0,
                         extra_info=extra,
                     ))
@@ -1498,7 +1522,7 @@ class PlatPharmCrawler(BaseCrawler):
                 display_name = f"{name} {std}" if std else name
 
                 img_url = self.abs_img_url(thumb, self.IMG_BASE) if thumb else None
-                self.note_img_sample(item)
+                self.note_img_sample(item, missing=not img_url)
 
                 extra = {}
                 if vendor:
@@ -1651,9 +1675,10 @@ class SaeroPharmCrawler(BaseCrawler):
                     price_text = price_el.get_text()
                     price = self.extract_price(price_text)
 
-                # 이미지
+                # 이미지 (v10.0: lazy-load 속성·상대 주소 공통 처리, 진단 샘플)
                 img_el = item.select_one(".thumbs img")
-                img_url = img_el.get("src", "") if img_el else None
+                img_url = self.abs_img_url(self.pick_img_src(img_el), self.base_url + "/")
+                self.note_img_sample(str(item), missing=not img_url)
 
                 display_name = f"{name} ({spec})" if spec else name
 
@@ -2314,7 +2339,7 @@ class PharmStreetCrawler(BaseCrawler):
                 if img_el is None and parent is not None and len(parent.find_all("dl")) == 1:
                     img_el = parent.select_one("img")
                 img_url = self.abs_img_url(self.pick_img_src(img_el), search_url)
-                self.note_img_sample(str(parent if parent is not None else dl))
+                self.note_img_sample(str(parent if parent is not None else dl), missing=not img_url)
 
                 extra = {}
                 if maker:
@@ -2547,7 +2572,7 @@ class SmartPharmCrawler(BaseCrawler):
                 # 이미지 (v9.0): "../FileFolder/..."처럼 목록 페이지 기준 상대 주소도 있을 수
                 # 있어 페이지 주소로 urljoin. 플레이스홀더(no36.gif)는 abs_img_url이 거름.
                 img_url = self.first_img_url(row, search_url)
-                self.note_img_sample(str(row))
+                self.note_img_sample(str(row), missing=not img_url)
 
                 display_name = f"{name} ({spec})" if spec else name
 
@@ -2696,7 +2721,7 @@ class CupharmCrawler(BaseCrawler):
                 # 이미지 (v9.0): 목록 행 구조상 이미지 칸은 미확인 — 행에 img가 있으면 사용,
                 # 없으면 진단 파일의 행 샘플로 구조 확인 후 보완
                 img_url = self.first_img_url(tr, search_url)
-                self.note_img_sample(str(tr))
+                self.note_img_sample(str(tr), missing=not img_url)
 
                 extra = {"제조사": maker} if maker else {}
                 if insurance_code:
@@ -3240,7 +3265,7 @@ class KDShopCrawler(BaseCrawler):
                 hidden = li.select_one(f"#gImgFullpath{gno}")
                 if not img_url and hidden:
                     img_url = self.abs_img_url(hidden.get("value"), search_url)
-                self.note_img_sample(str(li))
+                self.note_img_sample(str(li), missing=not img_url)
                 products.append(Product(
                     name=name, price=price, unit_price=None, url=search_url,
                     site_name=self.site_name,
@@ -3406,7 +3431,7 @@ class DspMallCrawler(BaseCrawler):
                 # 이미지는 lazy-load: src는 data URI 더미, 실제 주소는 data-original
                 img_el = box.select_one(".item_photo_box img") or box.select_one("img")
                 img_url = self.abs_img_url(self.pick_img_src(img_el), search_url)
-                self.note_img_sample(str(box))
+                self.note_img_sample(str(box), missing=not img_url)
 
                 # 품절(실캡쳐 확인): 바깥 li.item_soldout, 사진 위
                 # strong.item_soldout_bg("SOLD OUT"), 아이콘 img[alt="품절"]
@@ -3696,6 +3721,11 @@ class PharmPayMallCrawler(BaseCrawler):
                 stock_raw = item.get("stocksum")
                 in_stock = True if stock_raw in (None, "") else self._to_int(stock_raw) > 0
                 img = item.get("img2") or ""
+                # v10.0: 이미지 없는 상품은 img2가 "/imageFiles/product"처럼 파일명 없는
+                # 폴더 경로로 옴(사용자 진단 파일) — 요청하면 응답 없이 10초 시간 초과
+                if img and "." not in img.rstrip("/").rsplit("/", 1)[-1]:
+                    img = ""
+                self.note_img_sample(item, missing=not img)
 
                 products.append(Product(
                     name=f"{name} ({stand})" if stand else name,
@@ -4207,6 +4237,7 @@ class App(tk.Tk):
 
     # 결과창 썸네일
     THUMB_SIZE      = 48
+    MAX_IMG_BYTES   = 8 * 1024 * 1024
     ROW_H           = 32
     ROW_H_WITH_IMG  = 56
 
@@ -4231,6 +4262,7 @@ class App(tk.Tk):
         self._site_img_cookies = {} # 사이트명 → 검색 세션 쿠키 (로그인 필요한 이미지용)
         self._site_img_sample = {}  # 사이트명 → 첫 상품 원본 (진단 파일용)
         self._img_diag_path = ""    # 마지막 이미지 진단 파일 경로
+        self._img_borrow = {}       # _all_products 인덱스 → (대체 이미지 URL, 출처 사이트) (v10.0)
         self._status_base = ""
 
         # tk 입력 위젯 공통 테두리 (밝은 배경에서 입력칸 구분)
@@ -4678,7 +4710,61 @@ class App(tk.Tk):
 
         self._last_query = query
         self._last_errors = errors
+        self._img_borrow = self._match_borrowed_images()
         self._render_products()
+
+    # ──────── 이미지 없는 상품 → 다른 사이트의 같은 상품 이미지로 대체 (v10.0) ────────
+    _UNIT_RE = r"\d+(?:\.\d+)?\s*(?:mg|g|ml|l|c|t|정|캡슐|포|병|개|매|밀리|그램|리터)"
+
+    @classmethod
+    def _name_key(cls, name: str) -> str:
+        """상품명 비교 키: 괄호·규격·구분자 뒤를 떼고 한글/영문/숫자만.
+        예) "모드콜에스연질캡슐-(10C)종합감기::특가", "모드콜에스연질캡슐 /PTP (200밀리그램(10캡슐))"
+            → "모드콜에스연질캡슐" """
+        n = name or ""
+        for _ in range(2):  # 중첩 괄호 "(200밀리그램(10캡슐))"
+            n = re.sub(r"\([^()]*\)|\[[^\[\]]*\]", " ", n)
+        n = re.split(r"[-/:,]|\s\d|" + cls._UNIT_RE, n, flags=re.I)[0]
+        return re.sub(r"[^0-9a-z가-힣]", "", n.lower())
+
+    def _match_borrowed_images(self) -> dict:
+        """이미지 주소가 없는 상품(서울약사신협 목록은 이미지 자체가 없음 — 사용자 진단
+        파일)에 같은 상품명인 다른 상품의 이미지를 연결. 이름이 같으면 우선, 아니면 한
+        쪽 이름이 다른 쪽에 포함되고 길이 비율 0.7 이상(예: "모드콜에스연질"↔
+        "모드콜에스연질캡슐", "종근모드콜노즈시럽"↔"모드콜노즈시럽")인 것 중 가장 비슷한 것."""
+        donors = {}
+        for p in self._all_products:
+            if (p.image_url or "").startswith("http"):
+                k = self._name_key(p.name)
+                if len(k) >= 3:
+                    donors.setdefault(k, (p.image_url, p.site_name))
+        borrow = {}
+        for idx, p in enumerate(self._all_products):
+            if (p.image_url or "").startswith("http"):
+                continue
+            k = self._name_key(p.name)
+            if len(k) < 3:
+                continue
+            if k in donors:
+                borrow[idx] = donors[k]
+                continue
+            best, best_ratio = None, 0.7
+            for dk, donor in donors.items():
+                short, long_ = sorted((k, dk), key=len)
+                if len(short) >= 4 and short in long_:
+                    ratio = len(short) / len(long_)
+                    if ratio >= best_ratio:
+                        best, best_ratio = donor, ratio
+            if best:
+                borrow[idx] = best
+        return borrow
+
+    def _img_of(self, idx: int, p) -> tuple:
+        """(표시할 이미지 URL, 대체 출처 사이트 또는 "") — 자기 이미지가 없으면 대체 이미지"""
+        if (p.image_url or "").startswith("http"):
+            return p.image_url, ""
+        url, site = self._img_borrow.get(idx, ("", ""))
+        return url, site
 
     def _on_toggle_soldout(self):
         """품절 제외 토글 → 설정 저장 후 현재 결과 다시 표시"""
@@ -4742,7 +4828,7 @@ class App(tk.Tk):
                 price_txt,
                 p.unit_price or "-", maker, stock_txt
             ))
-            img_url = p.image_url or ""
+            img_url, _ = self._img_of(idx, p)
             if img_url.startswith("http"):
                 self._thumb_rows.setdefault(img_url, []).append(iid)
                 if self._thumb_cache.get(img_url):
@@ -4782,7 +4868,8 @@ class App(tk.Tk):
             self._render_products()
 
     def _visible_products(self):
-        return [self._all_products[int(iid[2:])] for iid in self.tree.get_children("")
+        """현재 표에 보이는 (인덱스, 상품) 목록"""
+        return [(int(iid[2:]), self._all_products[int(iid[2:])]) for iid in self.tree.get_children("")
                 if iid.startswith("p_") and int(iid[2:]) < len(self._all_products)]
 
     def _img_status_txt(self) -> str:
@@ -4790,10 +4877,10 @@ class App(tk.Tk):
         if not self.show_images or not self._last_query:
             return ""
         stats = {}
-        for p in self._visible_products():
+        for idx, p in self._visible_products():
             st = stats.setdefault(p.site_name, {"n": 0, "bad": 0, "why": {}})
             st["n"] += 1
-            url = p.image_url or ""
+            url, _ = self._img_of(idx, p)
             if not url.startswith("http"):
                 why = "주소 없음"
             elif url in self._thumb_fail:
@@ -4813,10 +4900,12 @@ class App(tk.Tk):
         """이미지가 안 보이는 사이트의 주소·실패 사유·상품 원본 샘플을 debug/에 저장.
         로그인 후에만 보이는 목록 구조를 확인해 사이트별로 고치기 위한 자료 (v9.0)"""
         by_site = {}
-        for p in self._visible_products():
-            url = p.image_url or ""
+        for idx, p in self._visible_products():
+            url, src = self._img_of(idx, p)
             why = "주소 없음" if not url.startswith("http") else self._thumb_fail.get(url)
             if why:
+                if src:
+                    why = f"{src} 대체 이미지: {why}"
                 by_site.setdefault(p.site_name, []).append((p.name, url, why))
         if not by_site:
             return
@@ -4886,7 +4975,18 @@ class App(tk.Tk):
                                 elif ctype.startswith("text/"):
                                     why = f"이미지 아님({ctype})"
                                 else:
-                                    data = await resp.content.read(3 * 1024 * 1024)
+                                    # v10.0: content.read(n)은 '지금 도착한 만큼'(약 16KB)만 돌려줌 —
+                                    # v9.0은 이것만 받아 큰 이미지가 전부 "해석 실패"였음(사용자
+                                    # 진단 파일 + 실측: 16KB → truncated, 전체 → 정상). 끝까지 받음.
+                                    buf = bytearray()
+                                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                                        buf += chunk
+                                        if len(buf) > self.MAX_IMG_BYTES:
+                                            break
+                                    if len(buf) > self.MAX_IMG_BYTES:
+                                        why = "파일이 너무 큼"
+                                    else:
+                                        data = bytes(buf)
                         except asyncio.TimeoutError:
                             why = "시간 초과"
                         except Exception as e:
