@@ -3,7 +3,7 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v10.0
+## 현재 버전: v10.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -169,7 +169,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v10.0.py
+python wholesale_price_finder_v10.1.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -199,10 +199,14 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v10.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v10.1.py
 ```
 
 ## 변경 이력
+- v10.1 — 이미지 진단('쏠라') 반영. 이미지가 실패(403/404)하면 다음 후보(자체 대체 주소 → 약학정보원/
+  드럭인포 → 다른 도매 사이트)로 넘어감. 광동몰 CloudFront 403 이미지는 kdshop.co.kr 원본 주소로 대체,
+  파일명 없는 주소는 제외. 스마트팜 `Product_smartpharm` 이미지(사이트에서도 404)는 같은 파일이 있는
+  아로파몰 주소로. 상품명 매칭 최소 3자, 괄호 안 맛·용도가 같은 이미지 우선.
 - v10.0 — 사용자 이미지 진단 파일 분석 반영. (버그) 이미지를 앞부분(약 16KB)만 받아 "이미지 해석
   실패"로 안 보이던 문제 수정 — `content.read(n)`이 도착한 만큼만 돌려주는 동작 때문이었음(실측
   확인). 광동몰·새로팜·바로팜·플랫팜 이미지가 이 버그로 안 보였음. (기능) 이미지 주소가 없는
