@@ -20,6 +20,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          배치 탓에 세로 스크롤바도 창 밖으로 밀려 안 보였음(Xvfb 실측). 결과·즐겨찾기·
          사이트 관리 표를 grid 배치로 바꿔 세로 스크롤바를 항상 보이게 하고, 열이 다
          안 보일 때만 하단에 가로 스크롤바가 나타나 좌우로 이동 가능.
+         첫 실행 창 크기도 고정 960x700 대신 결과 표 열이 다 보이는 너비(위젯 요청
+         크기로 계산, 이미지 열 포함)로 화면 가운데에 띄움. 화면이 더 좁으면 화면에 맞춤.
+         결과 표는 상품명 열만 창 너비에 따라 늘고 줄며(최소 200px) 나머지 열은 폭 고정
+         — 좁아지면 열을 짓눌러 글자를 자르는 대신 가로 스크롤바로 이동. 이미지 열을
+         켜고 끌 때 열 너비를 다시 맞춤(Tk가 늘려 둔 열을 줄이지 않아 오른쪽 열이 밀렸음).
   v10.1 — 사용자 이미지 진단 파일('쏠라' 검색) 반영.
          - 이미지가 실패(403/404 등)하면 다음 후보로 넘어감: 자체 이미지 → 자체 대체
            주소(Product.image_alts) → 약학정보원/드럭인포 → 다른 도매 사이트. v10.0은
@@ -4520,6 +4525,24 @@ class App(tk.Tk):
         style.map("TScrollbar", background=[("active", self.BG3)])
 
         self._build_ui()
+        self._fit_window()
+
+    def _fit_window(self):
+        """첫 실행 창 크기를 결과 표 열이 잘리지 않는 너비로 맞추고 화면 가운데에 띄움 (v11.0).
+        필요한 너비는 실제 배치된 위젯의 요청 크기(열 너비 합 + 여백 + 스크롤바)로 계산 —
+        Windows 배율(125%·150%)에서 글꼴이 커져도 그대로 맞음. 이미지 열을 숨긴 상태로
+        시작해도 나중에 켤 수 있으니 이미지 열 너비까지 포함. 화면보다 크면 화면에 맞춤
+        (이때는 하단 가로 스크롤바로 이동)."""
+        self.update_idletasks()
+        need_w = self.winfo_reqwidth()
+        if not self.show_images:
+            need_w += self.tree.column("#0", "width")
+        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
+        w = min(max(960, need_w + 4), screen_w - 40)
+        h = min(700, screen_h - 80)
+        x = max(0, (screen_w - w) // 2)
+        y = max(0, (screen_h - h) // 3)
+        self.geometry(f"{w}x{h}+{x}+{y}")
 
     # ────────────────────────────────
     # UI 구성
@@ -4619,7 +4642,10 @@ class App(tk.Tk):
         for col, (txt, w) in self._col_headings.items():
             self.tree.heading(col, text=txt, command=lambda c=col: self._sort_tree(c))
             anchor = "center" if col in ("rank", "stock") else "e" if col == "price" else "w"
-            self.tree.column(col, width=w, anchor=anchor, minwidth=40)
+            # v11.0: 상품명 열만 창 너비에 따라 늘고 줄며(최소 200px), 나머지 열은 폭 고정 —
+            # 창이 좁으면 열을 짓눌러 글자를 자르는 대신 하단 가로 스크롤바로 이동
+            self.tree.column(col, width=w, anchor=anchor, stretch=(col == "name"),
+                             minwidth=200 if col == "name" else 40)
 
         self._add_scrollbars(tree_frame, self.tree)
 
@@ -5129,6 +5155,18 @@ class App(tk.Tk):
         ttk.Style(self).configure("Results.Treeview",
                                   rowheight=self.ROW_H_WITH_IMG if self.show_images else self.ROW_H)
         self.tree.configure(show="tree headings" if self.show_images else "headings")
+        self._reset_tree_columns()
+
+    def _reset_tree_columns(self):
+        """결과 표 열 너비를 기본값으로 되돌리고 남는 폭은 상품명 열에 줌 (v11.0).
+        Tk는 창이 넓을 때 늘려 둔 열을, 이미지 열(#0)이 새로 생겨도 다시 줄이지 않아
+        (창 크기를 바꿔도 그대로 — 실측) 이미지를 켜면 오른쪽 열이 밀려 잘렸음."""
+        self.update_idletasks()
+        avail = self.tree.winfo_width() - (self.tree.column("#0", "width") if self.show_images else 0)
+        base = sum(w for _, w in self._col_headings.values())
+        for col, (_, w) in self._col_headings.items():
+            extra = max(0, avail - base - 4) if col == "name" and avail > 1 else 0
+            self.tree.column(col, width=w + extra)
 
     def _on_toggle_images(self):
         """이미지 보이기/숨기기 토글 → 설정 저장 후 즉시 반영"""
