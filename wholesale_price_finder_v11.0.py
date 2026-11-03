@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v10.1 — Windows GUI
+도매 최저가 비교 프로그램 v11.0 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v10.1.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.0.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.0 — 표 가로 스크롤바 추가. 기본 창 크기(960x700)에서 검색 결과 표의 열 너비
+         합(약 930px)이 표 영역(약 890px)보다 커서 오른쪽 '재고' 열이 잘리고, pack
+         배치 탓에 세로 스크롤바도 창 밖으로 밀려 안 보였음(Xvfb 실측). 결과·즐겨찾기·
+         사이트 관리 표를 grid 배치로 바꿔 세로 스크롤바를 항상 보이게 하고, 열이 다
+         안 보일 때만 하단에 가로 스크롤바가 나타나 좌우로 이동 가능.
   v10.1 — 사용자 이미지 진단 파일('쏠라' 검색) 반영.
          - 이미지가 실패(403/404 등)하면 다음 후보로 넘어감: 자체 이미지 → 자체 대체
            주소(Product.image_alts) → 약학정보원/드럭인포 → 다른 도매 사이트. v10.0은
@@ -383,7 +388,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "10.1"
+__version__ = "11.0"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -4616,10 +4621,7 @@ class App(tk.Tk):
             anchor = "center" if col in ("rank", "stock") else "e" if col == "price" else "w"
             self.tree.column(col, width=w, anchor=anchor, minwidth=40)
 
-        scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        self._add_scrollbars(tree_frame, self.tree)
 
         self.tree.bind("<Double-1>", self._on_tree_double_click)
         self.tree.bind("<Button-3>", self._on_tree_right_click)
@@ -4632,6 +4634,29 @@ class App(tk.Tk):
         self._ctx_menu.add_command(label="📋 셀 내용 복사", command=self._copy_cell)
         self._ctx_menu.add_command(label="⭐ 즐겨찾기 추가", command=self._add_to_favorites)
         self._ctx_menu.add_command(label="🔍 이 상품 사이트에서 검색", command=self._open_product_search)
+
+    @staticmethod
+    def _add_scrollbars(frame, tree):
+        """표에 세로 스크롤바(오른쪽)와 가로 스크롤바(하단)를 붙임 (v11.0).
+        창이 좁아 열이 다 안 보이면 하단 가로 스크롤바로 좌우 이동 — 열이 다 보이면 숨김.
+        v10.1까지는 pack 배치라 기본 창 크기(960px)에서 결과 표의 오른쪽 열(재고)이 잘리고
+        세로 스크롤바도 창 밖으로 밀려 안 보였음 → grid로 표가 남은 공간만 차지하게 함."""
+        vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        hsb = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview)
+
+        def xset(first, last):
+            if float(first) <= 0.0 and float(last) >= 1.0:
+                hsb.grid_remove()
+            else:
+                hsb.grid()
+            hsb.set(first, last)
+
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=xset)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
 
     # ──────── 즐겨찾기 탭 ────────
     def _build_favorites_tab(self):
@@ -4661,10 +4686,7 @@ class App(tk.Tk):
             self.fav_tree.column(col, width=w, minwidth=40,
                                   anchor="e" if col == "price" else "w")
 
-        fav_sb = ttk.Scrollbar(fav_frame, orient="vertical", command=self.fav_tree.yview)
-        self.fav_tree.configure(yscrollcommand=fav_sb.set)
-        self.fav_tree.pack(side="left", fill="both", expand=True)
-        fav_sb.pack(side="right", fill="y")
+        self._add_scrollbars(fav_frame, self.fav_tree)
         self.fav_tree.bind("<Double-1>", self._on_fav_double_click)
         self._refresh_favorites()
 
@@ -4738,10 +4760,7 @@ class App(tk.Tk):
             self.site_tree.heading(col, text=txt)
             self.site_tree.column(col, width=w, minwidth=50)
 
-        sb = ttk.Scrollbar(list_frame, orient="vertical", command=self.site_tree.yview)
-        self.site_tree.configure(yscrollcommand=sb.set)
-        self.site_tree.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
+        self._add_scrollbars(list_frame, self.site_tree)
         self.site_tree.bind("<Double-1>", lambda e: self._edit_site())
 
         self._refresh_site_list()
