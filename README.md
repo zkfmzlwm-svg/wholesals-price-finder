@@ -3,7 +3,7 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v11.0
+## 현재 버전: v11.1
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -169,7 +169,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v11.0.py
+python wholesale_price_finder_v11.1.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -199,10 +199,12 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v11.0.py
+pyinstaller --onefile --windowed wholesale_price_finder_v11.1.py
 ```
 
 ## 변경 이력
+- v11.1 — 창을 좁히면 검색 줄 오른쪽의 "이미지 숨기기"·"검색" 버튼이 잘리던 문제 수정. 버튼·옵션을
+  오른쪽에 먼저 배치해 창이 좁아지면 검색어 입력창만 줄어듦.
 - v11.0 — 표 가로 스크롤바 추가. 기본 창 크기에서 검색 결과 표 오른쪽 열(재고)이 잘리고 세로
   스크롤바도 밀려 안 보이던 문제 수정. 결과·즐겨찾기·사이트 관리 표에서 열이 다 안 보이면 하단에
   가로 스크롤바가 나타나 좌우로 이동(다 보이면 자동으로 숨김). 첫 실행 창 크기도 결과 표 열이 다

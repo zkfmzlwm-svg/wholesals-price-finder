@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v11.0 — Windows GUI
+도매 최저가 비교 프로그램 v11.1 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.0.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.1.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.1 — 창을 좁히면(약 980px 미만) 검색 줄 오른쪽의 "이미지 숨기기"·"검색" 버튼이
+         잘리던 문제 수정. pack은 공간이 모자라면 나중에 배치한 위젯부터 줄이는데
+         검색어 입력창 → 정렬 → 품절 제외 → 이미지 → 검색 순으로 왼쪽부터 배치해
+         버튼이 먼저 잘렸음. 버튼·옵션을 오른쪽부터 먼저 배치하고 입력창을 마지막에
+         배치해, 좁아지면 입력창만 줄어듦(기본 폭 30자 → 12자, 남는 폭은 계속 차지).
   v11.0 — 표 가로 스크롤바 추가. 기본 창 크기(960x700)에서 검색 결과 표의 열 너비
          합(약 930px)이 표 영역(약 890px)보다 커서 오른쪽 '재고' 열이 잘리고, pack
          배치 탓에 세로 스크롤바도 창 밖으로 밀려 안 보였음(Xvfb 실측). 결과·즐겨찾기·
@@ -393,7 +398,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "11.0"
+__version__ = "11.1"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -4576,22 +4581,18 @@ class App(tk.Tk):
         bar = tk.Frame(tab, bg=self.BG)
         bar.pack(fill="x", padx=20, pady=(20, 10))
 
+        # v11.1: 버튼·옵션을 오른쪽부터 먼저 배치하고 검색창을 마지막에 배치 — pack은 공간이
+        # 모자라면 나중에 배치한 위젯부터 줄이므로, 창이 좁아지면 검색창만 줄고 버튼은 안 잘림
+        # (v11.0까지는 왼쪽부터 순서대로 배치해 약 980px 미만에서 "검색" 버튼이 잘렸음)
         tk.Label(bar, text="검색어", font=("맑은 고딕", 10, "bold"), bg=self.BG, fg=self.TEXT).pack(side="left", padx=(0, 8))
         self.search_var = tk.StringVar()
-        entry = tk.Entry(bar, textvariable=self.search_var, font=("맑은 고딕", 13),
-                         bg=self.ENTRY_BG, fg=self.TEXT, insertbackground=self.TEXT,
-                         relief="flat", width=30)
-        entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 10))
-        entry.bind("<Return>", lambda e: self._do_search())
 
-        self.sort_var = tk.StringVar(value="price")
-        sort_frame = tk.Frame(bar, bg=self.BG)
-        sort_frame.pack(side="left", padx=(0, 10))
-        tk.Label(sort_frame, text="정렬", font=("맑은 고딕", 9), bg=self.BG, fg=self.TEXT2).pack(side="left")
-        for txt, val in [("가격", "price"), ("이름", "name")]:
-            tk.Radiobutton(sort_frame, text=txt, variable=self.sort_var, value=val,
-                           bg=self.BG, fg=self.TEXT, selectcolor=self.BG3, activebackground=self.BG,
-                           activeforeground=self.TEXT, font=("맑은 고딕", 9)).pack(side="left")
+        ttk.Button(bar, text="🔍 검색", style="Accent.TButton", command=self._do_search).pack(side="right")
+
+        # 이미지 보이기/숨기기 — 결과 표 썸네일 열 토글 (재검색 없이 즉시 적용)
+        self.show_images = self.config_data.get("settings", {}).get("show_images", True)
+        self.img_btn = ttk.Button(bar, style="Flat.TButton", command=self._on_toggle_images)
+        self.img_btn.pack(side="right", padx=(0, 10))
 
         # 품절 제외 — 검색 결과에서 재고 없는 상품 숨김 (재검색 없이 즉시 적용)
         self.hide_soldout_var = tk.BooleanVar(
@@ -4599,14 +4600,23 @@ class App(tk.Tk):
         tk.Checkbutton(bar, text="품절 제외", variable=self.hide_soldout_var,
                        command=self._on_toggle_soldout,
                        bg=self.BG, fg=self.TEXT, selectcolor=self.BG3, activebackground=self.BG,
-                       activeforeground=self.TEXT, font=("맑은 고딕", 9)).pack(side="left", padx=(0, 10))
+                       activeforeground=self.TEXT, font=("맑은 고딕", 9)).pack(side="right", padx=(0, 10))
 
-        # 이미지 보이기/숨기기 — 결과 표 썸네일 열 토글 (재검색 없이 즉시 적용)
-        self.show_images = self.config_data.get("settings", {}).get("show_images", True)
-        self.img_btn = ttk.Button(bar, style="Flat.TButton", command=self._on_toggle_images)
-        self.img_btn.pack(side="left", padx=(0, 10))
+        self.sort_var = tk.StringVar(value="price")
+        sort_frame = tk.Frame(bar, bg=self.BG)
+        sort_frame.pack(side="right", padx=(0, 10))
+        tk.Label(sort_frame, text="정렬", font=("맑은 고딕", 9), bg=self.BG, fg=self.TEXT2).pack(side="left")
+        for txt, val in [("가격", "price"), ("이름", "name")]:
+            tk.Radiobutton(sort_frame, text=txt, variable=self.sort_var, value=val,
+                           bg=self.BG, fg=self.TEXT, selectcolor=self.BG3, activebackground=self.BG,
+                           activeforeground=self.TEXT, font=("맑은 고딕", 9)).pack(side="left")
 
-        ttk.Button(bar, text="🔍 검색", style="Accent.TButton", command=self._do_search).pack(side="left")
+        # 검색창: 남는 폭을 모두 차지하고, 창이 좁으면 가장 먼저 줄어듦
+        entry = tk.Entry(bar, textvariable=self.search_var, font=("맑은 고딕", 13),
+                         bg=self.ENTRY_BG, fg=self.TEXT, insertbackground=self.TEXT,
+                         relief="flat", width=12)
+        entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 10))
+        entry.bind("<Return>", lambda e: self._do_search())
 
         # 상태 바
         self.status_var = tk.StringVar(value="검색어를 입력하고 Enter 또는 검색 버튼을 누르세요")
