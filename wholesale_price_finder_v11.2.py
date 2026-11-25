@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v11.1 — Windows GUI
+도매 최저가 비교 프로그램 v11.2 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.1.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.2.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,13 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.2 — 사이트 추가: 선미약품(sunmepharm.com). Classic ASP 약품 웹주문시스템(WOS)
+         공용 플랫폼, http 전용. 로그인 POST /Common/Certify/Login.asp(tx_id/tx_pw,
+         페이지 pwdencyn='Y'일 때만 Base64 — 선미약품은 평문, 실패 응답 alert 실측).
+         검색은 주문 페이지 /Service/Order/Order.asp(tx_physic). 결과 표 구조
+         (tr.ln_physic, a.physic_nm, 머리글 th.titleN 이미지 → 열 이름 매핑)는
+         공개 Order.js·style.css·머리글 이미지로 추정 — 실계정 캡처 전이라 상품을
+         못 찾으면 응답을 debug 폴더에 저장. SunmePharmCrawler.
   v11.1 — 창을 좁히면(약 980px 미만) 검색 줄 오른쪽의 "이미지 숨기기"·"검색" 버튼이
          잘리던 문제 수정. pack은 공간이 모자라면 나중에 배치한 위젯부터 줄이는데
          검색어 입력창 → 정렬 → 품절 제외 → 이미지 → 검색 순으로 왼쪽부터 배치해
@@ -398,7 +405,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "11.1"
+__version__ = "11.2"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -552,6 +559,7 @@ SITE_SEARCH_PATTERNS = {
     "서울약사신협": "https://www.cupharm.kr/order/order_goods.asp?s_c11_med_nm={query}&s_w11_ven_cd=13528&page=1&s_w12_flag=P&search_flg=ok&w14_user_type=1&search_type=2",
     "동성몰":  "https://www.dspmall.kr/goods/goods_search.php?keyword={query}",
     "팜페이몰": "https://www.pharmpaymall.com/",
+    "선미약품": "http://sunmepharm.com/Service/Order/Order.asp?tx_physic={query}",
 }
 
 DEFAULT_CONFIG = {
@@ -3808,6 +3816,256 @@ class PharmPayMallCrawler(BaseCrawler):
         return products[:max_results]
 
 
+class SunmePharmCrawler(BaseCrawler):
+    """
+    선미약품 (sunmepharm.com) 전용 크롤러. — v11.2에서 추가.
+
+    Classic ASP 기반 약품 도매 '웹주문시스템(WOS)' 공용 플랫폼(엠디약품·
+    bizmedikorea·kodc 등과 같은 솔루션 — Order.js의 hardcoding 분기로 확인).
+    https 미지원(인증서가 다른 도메인) → http로만 접속.
+
+    로그인 (공개 로그인 페이지 HTML/JS + 실요청으로 확인):
+      - 폼: /Contents/Main/MainD.asp 의 form#frmLogin, JS SubmitForm()이
+        action을 "http://sunmepharm.com/Common/Certify/Login.asp"로 바꿔 POST.
+      - 필드: tx_id, tx_pw (chkSaveId/chkSavePwd는 체크박스 — 미체크 시 전송 안 됨)
+      - 비밀번호: 페이지의 input#pwdencyn 값이 'Y'면 Base64(UTF-8) 인코딩,
+        아니면 평문. 선미약품은 값이 ""(평문) — 크롤러는 페이지 값을 읽어 따름.
+      - 실패 응답(실측, 없는 계정): 200 + 
+          alert('아이디 또는 비밀번호가 잘못됐습니다.\\n\\n다시 확인해주세요.');
+          location.href='../../Intro.asp';
+      - 성공 응답 형식은 미확인 → 주문 페이지 접근 가능 여부로 판정.
+
+    주문(검색) 페이지: /Service/Order/Order.asp
+      - 비로그인 시(실측) 82바이트
+        <script>location.replace('http://sunmepharm.com');</script>만 반환.
+      - 검색 폼 form#frmSearch (Order.js 확인): 제품명 input#tx_physic,
+        제조사 input#tx_maker, 정렬 select#so/#so2, 구분 #df. 폼 method는
+        미확인이라 Classic ASP의 Request()가 둘 다 읽도록 쿼리스트링과 POST
+        본문에 같은 값을 넣어 보냄.
+      - 결과 표(Order.js·style.css 확인): form#frmOrder table.tbl_list,
+        상품 1행 = tr.ln_physic, 제품명 칸 td.td_nm > a.physic_nm
+        (href에 pc=제품코드 / wPhyCd=), 수량 input[name^=qty_].
+        Order.js의 colPhysicPos=2 → 제품명이 보통 3번째 칸(td:eq(2)).
+      - 표 머리글은 글자 대신 th.titleN 배경 이미지(color1_thNNN.gif)라
+        이미지를 직접 확인해 번호→열 이름을 매핑(TITLE_MAP). 예: title3=제품명,
+        title6=단가, title52=재고, title59=보험가.
+      - ⚠️ 로그인 후 결과 HTML은 실계정 캡처 전이라 위 구조로 추정 파싱.
+        상품을 못 찾으면 응답을 debug 폴더에 저장하고 오류로 알림.
+    """
+
+    BASE       = "http://sunmepharm.com"
+    LOGIN_PAGE = "http://sunmepharm.com/Contents/Main/MainD.asp"
+    LOGIN_URL  = "http://sunmepharm.com/Common/Certify/Login.asp"
+    ORDER_URL  = "http://sunmepharm.com/Service/Order/Order.asp"
+
+    # th.titleN → 열 이름 (Images/Content/color1_thNNN.gif 실측)
+    TITLE_MAP = {
+        1: "KD코드", 2: "제조사", 3: "제품명", 4: "규격", 5: "구분", 6: "단가",
+        7: "수량", 8: "선택", 10: "순번", 14: "공급가", 30: "금액", 52: "재고",
+        59: "보험가", 60: "할인율",
+    }
+    PRICE_COLS = ("단가", "공급가", "판매가", "약국가", "금액")
+
+    @staticmethod
+    def _decode(raw: bytes) -> str:
+        # 헤더는 utf-8, 일부 페이지 meta는 euc-kr — 실제 바이트로 판별
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("cp949", errors="replace")
+
+    def _not_logged_in(self, html: str) -> bool:
+        return (len(html) < 400 and "location.replace" in html
+                and "Order.asp" not in html and "tbl_list" not in html)
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+        await self._ensure_session()
+
+        async with self.session.get(self.LOGIN_PAGE, headers=self._headers) as resp:
+            page = self._decode(await resp.read())
+        m = re.search(r'id="pwdencyn"\s+value="([^"]*)"', page)
+        if m and m.group(1).upper() == "Y":
+            password = base64.b64encode(password.encode("utf-8")).decode("ascii")
+
+        async with self.session.post(
+            self.LOGIN_URL, data={"tx_id": username, "tx_pw": password},
+            headers={**self._headers, "Referer": self.LOGIN_PAGE, "Origin": self.BASE},
+        ) as resp:
+            body = self._decode(await resp.read())
+
+        alert = self.extract_alert(body)
+        if alert and re.search(r"잘못|일치|확인|없는|실패|승인|중지|정지", alert):
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {alert}")
+
+        # 성공 응답의 이동 주소가 있으면 브라우저처럼 따라가 세션을 마무리
+        nxt = self.extract_js_redirect(body)
+        if nxt and "Intro.asp" not in nxt:
+            try:
+                async with self.session.get(urljoin(self.LOGIN_URL, nxt),
+                                            headers=self._headers) as resp:
+                    await resp.read()
+            except Exception:
+                pass
+
+        if not await self.verify_login():
+            path = self.save_debug("로그인응답", body)
+            raise LoginError(f"'{self.site_name}' 로그인 실패: {alert or 'ID/비밀번호를 확인하세요.'}"
+                             f" — 진단 파일: {path}")
+        self.logged_in = True
+
+    async def verify_login(self) -> bool:
+        await self._ensure_session()
+        try:
+            async with self.session.get(self.ORDER_URL, headers=self._headers) as resp:
+                html = self._decode(await resp.read())
+        except Exception:
+            return False
+        return not self._not_logged_in(html)
+
+    async def _fetch_search(self, query: str, enc: str):
+        q = quote(query, encoding=enc)
+        url = f"{self.ORDER_URL}?tx_physic={q}&tx_maker="
+        body = f"tx_physic={q}&tx_maker="
+        async with self.session.post(url, data=body, headers={
+            **self._headers, "Referer": self.ORDER_URL,
+            "Content-Type": "application/x-www-form-urlencoded",
+        }) as resp:
+            return url, self._decode(await resp.read())
+
+    def _column_map(self, table) -> dict:
+        """머리글 th(titleN 클래스 또는 글자) → {열 이름: td 인덱스}"""
+        cols = {}
+        head = None
+        for tr in table.select("tr"):
+            if tr.find("th") and not tr.find("td"):
+                head = tr
+                break
+        if head is None:
+            return cols
+        idx = 0
+        for th in head.find_all("th"):
+            label = ""
+            for c in th.get("class") or []:
+                m = re.fullmatch(r"title(\d+)", c)
+                if m:
+                    label = self.TITLE_MAP.get(int(m.group(1)), "")
+            label = label or self.clean_text(th.get_text())
+            if label and label not in cols:
+                cols[label] = idx
+            try:
+                idx += int(th.get("colspan") or 1)
+            except ValueError:
+                idx += 1
+        return cols
+
+    @staticmethod
+    def _int_or_none(text):
+        t = re.sub(r"[^\d-]", "", text or "")
+        try:
+            return int(t) if t not in ("", "-") else None
+        except ValueError:
+            return None
+
+    def _parse(self, html: str, page_url: str) -> list:
+        soup = BeautifulSoup(html, "html.parser")
+        rows = soup.select("tr.ln_physic")
+        if not rows:
+            return []
+        table = rows[0].find_parent("table")
+        cols = self._column_map(table) if table else {}
+        products, seen = [], set()
+        for tr in rows:
+            try:
+                tds = tr.find_all("td", recursive=False)
+                name_a = tr.select_one("a.physic_nm") or tr.select_one("td.td_nm a")
+                if name_a is not None:
+                    name = self.clean_text(name_a.get_text())
+                elif "제품명" in cols and cols["제품명"] < len(tds):
+                    name = self.clean_text(tds[cols["제품명"]].get_text())
+                else:
+                    continue
+                if not name:
+                    continue
+
+                def cell(label):
+                    i = cols.get(label)
+                    return self.clean_text(tds[i].get_text()) if i is not None and i < len(tds) else ""
+
+                price = 0
+                for label in self.PRICE_COLS:
+                    price = self.extract_price(cell(label))
+                    if price > 0:
+                        break
+                if price <= 0:
+                    continue
+
+                href = name_a.get("href", "") if name_a is not None else ""
+                m = re.search(r"[?&]pc=([^&]+)", href)
+                key = m.group(1) if m else f"{name}|{price}"
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                stock_txt = cell("재고")
+                stock_num = self._int_or_none(stock_txt)
+                if stock_num is not None:
+                    in_stock = stock_num > 0
+                else:
+                    in_stock = not re.search(r"품절|없음|불가|X", stock_txt or "")
+
+                extra = {}
+                for label in ("제조사", "규격", "보험가", "KD코드"):
+                    v = cell(label)
+                    if v:
+                        extra[label] = v
+                if stock_txt:
+                    extra["재고"] = stock_txt
+                spec = extra.get("규격")
+                self.note_img_sample(str(tr), missing=True)
+                products.append(Product(
+                    name=name, price=price, unit_price=spec,
+                    url=page_url, site_name=self.site_name,
+                    image_url=None, in_stock=in_stock, extra_info=extra,
+                ))
+            except Exception:
+                continue
+        return products
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        await self._ensure_session()
+        url, html = await self._fetch_search(query, "utf-8")
+        if self._not_logged_in(html):
+            raise LoginError(f"'{self.site_name}' 로그인이 필요합니다. ID/비밀번호를 설정하세요.")
+
+        # 검색어 칸에 되돌아온 값이 깨졌으면 EUC-KR로 다시 요청
+        el = BeautifulSoup(html, "html.parser").select_one("#tx_physic")
+        echoed = el.get("value") if el is not None else None
+        if echoed is not None and echoed.strip() != query.strip() and not query.isascii():
+            url2, html2 = await self._fetch_search(query, "cp949")
+            if not self._not_logged_in(html2):
+                url, html = url2, html2
+
+        products = self._parse(html, url)
+        if not products:
+            no_result = re.search(
+                r"검색\s*결과가?\s*없|조회된\s*(?:제품|자료|데이터|내역)?\s*(?:이|가)?\s*없|"
+                r"제품이\s*없|자료가\s*없|데이터가\s*없|내역이\s*없", html)
+            if not no_result:
+                path = self.save_debug("검색결과", html)
+                raise RuntimeError(
+                    f"'{self.site_name}' 검색 결과에서 상품 목록을 찾지 못했습니다"
+                    f"(결과 구조 미확인) — 진단 파일: {path}")
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -3824,6 +4082,7 @@ CUSTOM_CRAWLERS = {
     "kdshop":          KDShopCrawler,
     "dspmall":         DspMallCrawler,
     "pharmpaymall":    PharmPayMallCrawler,
+    "sunmepharm":      SunmePharmCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -4223,6 +4482,32 @@ PHARMPAYMALL_PRESET = {
     "extra_config": {},
 }
 
+# ── 선미약품: v11.2에서 추가. 로그인은 공개 페이지·실요청으로 확인, 검색 결과
+# 구조는 Order.js/style.css로 추정(실계정 캡처 전). 상세는 SunmePharmCrawler 참고.
+SUNMEPHARM_PRESET = {
+    "name": "선미약품",
+    "enabled": True,
+    "builtin": True,
+    "builtin_id": "sunmepharm",
+    "crawler_type": "sunmepharm",
+    "base_url": "http://sunmepharm.com",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "http://sunmepharm.com/Common/Certify/Login.asp",
+        "login_method": "custom",
+        "login_fields": {"tx_id": "{username}", "tx_pw": "{password}"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "/Service/Order/Order.asp?tx_physic={query}",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
+    },
+    "extra_config": {},
+}
+
 BUILTIN_SITES = [
     BAROPHARM_PRESET,
     UPHARMMALL_PRESET,
@@ -4239,6 +4524,7 @@ BUILTIN_SITES = [
     KDSHOP_PRESET,
     DSPMALL_PRESET,
     PHARMPAYMALL_PRESET,
+    SUNMEPHARM_PRESET,
 ]
 
 def create_crawler(sc):

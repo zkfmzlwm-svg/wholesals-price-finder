@@ -3,13 +3,13 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v11.1
+## 현재 버전: v11.2
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
 - 사이트 추가 → 소수점 버전업 (예: 1.0 → 1.1)
 
-## 내장 지원 사이트 (15개)
+## 내장 지원 사이트 (16개)
 | 사이트 | 기술 스택 | 로그인 방식 |
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
@@ -27,6 +27,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 | 광동몰 | Java 서버 렌더링 (로그인/검색/재고 확인됨) | 폼 POST (평문, xpw 필드) |
 | 동성몰 | NHN Commerce(고도몰5, moment 스킨) (검색/목록 파싱 실캡쳐 확인됨) | AJAX 폼 POST (평문) |
 | 팜페이몰 | ASP.NET + 자체 JDINS 프레임워크 (로그인/검색 실캡쳐 확인됨) | AJAX POST /loginChk.json (평문 userid/userpwd) |
+| 선미약품 | Classic ASP 웹주문시스템(WOS), http 전용 (로그인 확인됨, 검색 결과 구조는 추정) | 폼 POST (평문 tx_id/tx_pw) |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
 > 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장
@@ -169,7 +170,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v11.1.py
+python wholesale_price_finder_v11.2.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -199,10 +200,14 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v11.1.py
+pyinstaller --onefile --windowed wholesale_price_finder_v11.2.py
 ```
 
 ## 변경 이력
+- v11.2 — 사이트 추가: 선미약품(sunmepharm.com). Classic ASP 약품 웹주문시스템(WOS) 공용 플랫폼.
+  로그인 `POST /Common/Certify/Login.asp`(tx_id/tx_pw 평문, 실패 응답 실측), 검색은 주문 페이지
+  `/Service/Order/Order.asp`(tx_physic). 결과 표 구조는 공개 Order.js·style.css·머리글 이미지로
+  추정했으며(실계정 캡처 전), 상품을 못 찾으면 응답을 debug 폴더에 저장.
 - v11.1 — 창을 좁히면 검색 줄 오른쪽의 "이미지 숨기기"·"검색" 버튼이 잘리던 문제 수정. 버튼·옵션을
   오른쪽에 먼저 배치해 창이 좁아지면 검색어 입력창만 줄어듦.
 - v11.0 — 표 가로 스크롤바 추가. 기본 창 크기에서 검색 결과 표 오른쪽 열(재고)이 잘리고 세로
