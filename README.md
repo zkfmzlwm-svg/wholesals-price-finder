@@ -3,7 +3,7 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v11.2
+## 현재 버전: v11.3
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -170,7 +170,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v11.2.py
+python wholesale_price_finder_v11.3.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -200,10 +200,12 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v11.2.py
+pyinstaller --onefile --windowed wholesale_price_finder_v11.3.py
 ```
 
 ## 변경 이력
+- v11.3 — 로그인 비밀번호 방어 수정. 비밀번호 앞뒤 공백을 저장·사용 시 제거하고, 저장된 비밀번호를
+  풀 수 없을 때(다른 PC에서 옮긴 설정 파일, 키 파일 변경) "비밀번호 미설정" 대신 다시 입력하라는 안내를 표시.
 - v11.2 — 사이트 추가: 선미약품(sunmepharm.com). Classic ASP 약품 웹주문시스템(WOS) 공용 플랫폼.
   로그인 `POST /Common/Certify/Login.asp`(tx_id/tx_pw 평문, 실패 응답 실측), 검색은 주문 페이지
   `/Service/Order/Order.asp`(tx_physic). 결과 표 구조는 공개 Order.js·style.css·머리글 이미지로
