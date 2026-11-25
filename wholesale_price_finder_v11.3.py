@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v11.2 — Windows GUI
+도매 최저가 비교 프로그램 v11.3 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.2.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.3.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,9 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.3 — 로그인 비밀번호 방어 수정. 비밀번호 앞뒤 공백을 저장·사용 시 제거(붙여넣기로
+         섞인 공백 때문에 로그인 실패하던 경우 대비). 저장된 비밀번호를 풀 수 없을 때
+         (다른 PC 설정 파일·키 파일 변경) "비밀번호 미설정" 대신 다시 입력하라는 안내를 표시.
   v11.2 — 사이트 추가: 선미약품(sunmepharm.com). Classic ASP 약품 웹주문시스템(WOS)
          공용 플랫폼, http 전용. 로그인 POST /Common/Certify/Login.asp(tx_id/tx_pw,
          페이지 pwdencyn='Y'일 때만 Base64 — 선미약품은 평문, 실패 응답 alert 실측).
@@ -405,7 +408,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "11.2"
+__version__ = "11.3"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -668,9 +671,24 @@ def get_site_password(site: dict) -> str:
     if not enc:
         return ""
     try:
-        return cred_mgr.decrypt(enc)
+        # v11.3: 붙여넣기 등으로 앞뒤 공백이 섞여 저장된 기존 비밀번호도 로그인되게 제거
+        return cred_mgr.decrypt(enc).strip()
     except Exception:
         return ""
+
+
+def password_missing_message(site: dict, site_name: str) -> str:
+    """비밀번호를 못 얻었을 때의 오류 문구 (v11.3).
+
+    저장된 값이 있는데도 못 푸는 경우(다른 PC의 config.json을 옮겨 왔거나
+    ~/.wholesale_finder_key 키 파일이 바뀐 경우)를 "미설정"과 구분해 알려 준다.
+    """
+    enc = site.get("credentials", {}).get("password_encrypted", "")
+    if enc:
+        return (f"'{site_name}' 저장된 비밀번호를 읽을 수 없습니다 "
+                f"(다른 PC에서 옮긴 설정이거나 암호화 키 파일이 바뀜). "
+                f"사이트 설정에서 비밀번호를 다시 입력하세요.")
+    return f"'{site_name}' 비밀번호 미설정"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -750,7 +768,7 @@ class BaseCrawler(ABC):
         if not username: return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
         await self._fetch_csrf()
         login_url = self.full_url(self.login_config.get("login_url", "/member/login"))
         fields = self.login_config.get("login_fields", {})
@@ -943,7 +961,7 @@ class BaroPharmCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
         async with self.session.post(
@@ -1092,7 +1110,7 @@ class UPharmMallCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -1285,7 +1303,7 @@ class HMPMallCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
         dwr_headers = {**self._headers, "Content-Type": "text/plain", "Referer": f"{self.BASE}/login.do"}
@@ -1479,7 +1497,7 @@ class PlatPharmCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -1637,7 +1655,7 @@ class SaeroPharmCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -1782,7 +1800,7 @@ class PharmNutritionCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -1982,7 +2000,7 @@ class DesimoneCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -2227,7 +2245,7 @@ class PharmStreetCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -2493,7 +2511,7 @@ class SmartPharmCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -2708,7 +2726,7 @@ class CupharmCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -2911,7 +2929,7 @@ class DaewoongTheShopCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -3113,7 +3131,7 @@ class DapMallCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -3243,7 +3261,7 @@ class KDShopCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
         async with self.session.get(self.LOGIN_PAGE) as resp:
@@ -3414,7 +3432,7 @@ class DspMallCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -3601,7 +3619,7 @@ class PharmPayMallCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
 
         await self._ensure_session()
 
@@ -3884,7 +3902,7 @@ class SunmePharmCrawler(BaseCrawler):
             return
         password = get_site_password(self.config)
         if not password:
-            raise LoginError(f"'{self.site_name}' 비밀번호 미설정")
+            raise LoginError(password_missing_message(self.config, self.site_name))
         await self._ensure_session()
 
         async with self.session.get(self.LOGIN_PAGE, headers=self._headers) as resp:
@@ -6076,7 +6094,7 @@ class SiteDialog(tk.Toplevel):
 
         if self.login_var.get():
             site["credentials"]["username"] = self.user_var.get().strip()
-            pw = self.pw_var.get()
+            pw = self.pw_var.get().strip()
             if pw and pw != "••••••••":
                 site["credentials"]["password_encrypted"] = cred_mgr.encrypt(pw)
             elif self.edit_idx is not None:
@@ -6146,7 +6164,7 @@ class CredentialDialog(tk.Toplevel):
                  insertbackground=App.TEXT, relief="flat", font=("맑은 고딕", 11)).grid(row=2, column=1, padx=10, ipady=5)
 
         if creds.get("password_encrypted"):
-            masked = cred_mgr.mask(get_site_password(site))
+            masked = cred_mgr.mask(get_site_password(site)) or "(읽을 수 없음 — 다시 입력하세요)"
             tk.Label(c, text=f"현재 저장된 비밀번호: {masked}", bg=App.BG, fg=App.TEXT2,
                      font=("맑은 고딕", 8)).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 10))
 
@@ -6158,7 +6176,7 @@ class CredentialDialog(tk.Toplevel):
     def _save(self):
         site = self.parent.config_data["sites"][self.site_idx]
         user = self.user_var.get().strip()
-        pw = self.pw_var.get()
+        pw = self.pw_var.get().strip()
 
         if user:
             site.setdefault("credentials", {})["username"] = user
