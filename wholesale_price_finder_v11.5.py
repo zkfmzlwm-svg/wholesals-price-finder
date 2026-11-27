@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v11.4 — Windows GUI
+도매 최저가 비교 프로그램 v11.5 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.4.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.5.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,12 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.5 — 사이트 추가: 동화eMall(www.dw1897.co.kr/emall, 동화약품 자체 몰). JSON API 구조.
+         로그인 POST /emall/proxy/logimax/auth/login(coakey=USER_CO_LOGIN_R_001, IN_USER_ID/
+         IN_PASSWD 평문, 성공 data[0].OUT_CODE="2"), 검색 POST .../coa/extstore
+         (coakey=USER_PRODUCT_R_001, IN_JOB=ALL, IN_SEARCH_NM). 품절은 SOLD_OUT_YN="Y",
+         "담당자 문의" 상품(ASSIGN_YN="Y", 0원·주문 불가)도 품절로 표시. 실계정으로 확인.
+         DongwhaEmallCrawler.
   v11.4 — 품절 판정 수정. 재고 값이 숫자 0이 아닌 "0"·"0.00"·"0개"·"1,200" 같은 문자열로 오면
          비교 오류·변환 실패로 상품이 빠지거나(바로팜·HMP몰·플랫팜) 재고 있음으로 남던 문제
          (광동몰 상세 재고 변환 실패 → 기본값 재고 있음, 동아DAPmall data-stockqty) 수정.
@@ -414,7 +420,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "11.4"
+__version__ = "11.5"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -569,6 +575,7 @@ SITE_SEARCH_PATTERNS = {
     "동성몰":  "https://www.dspmall.kr/goods/goods_search.php?keyword={query}",
     "팜페이몰": "https://www.pharmpaymall.com/",
     "선미약품": "http://sunmepharm.com/Service/Order/Order.asp?tx_physic={query}",
+    "동화eMall": "https://www.dw1897.co.kr/emall/",
 }
 
 DEFAULT_CONFIG = {
@@ -4135,6 +4142,153 @@ class SunmePharmCrawler(BaseCrawler):
         return products[:max_results]
 
 
+class DongwhaEmallCrawler(BaseCrawler):
+    """
+    동화eMall (www.dw1897.co.kr/emall) 전용 크롤러. — v11.5에서 추가.
+
+    동화약품 자체 도매몰. 자체 'Beo' 프레임워크(jQuery) + logimax 프록시 API 구조.
+    모든 요청은 POST application/x-www-form-urlencoded, 응답은 JSON
+    {"success", "resultCode", "message", "data": [...], "total"}. (2026-11-27 실계정 확인)
+
+    로그인: POST /emall/proxy/logimax/auth/login
+        coakey=USER_CO_LOGIN_R_001, IN_USER_ID, IN_PASSWD(평문), IN_DEVICE=D
+        - 성공: data[0].OUT_CODE == "2" (세션은 서버 JSESSIONID 쿠키로 유지.
+          브라우저는 data[0]을 sessionStorage에 저장할 뿐 이후 요청에 쓰지 않음)
+        - 98/99: 비밀번호 변경 대상(OUT_MSG 안내). 그 외: OUT_MSG가 실패 사유
+        - 없는 아이디: success=false, data=[], message에 "ORA-20000: 해당 아이디는
+          정보가 없습니다." (가짜 계정으로 실측)
+    검색: POST /emall/proxy/logimax/coa/extstore
+        coakey=USER_PRODUCT_R_001, IN_JOB=ALL, IN_SEARCH_NM=검색어 (search.js 확인)
+        - 비로그인/세션 만료: data 없이 resultCode=8, "[세션종료]로그인 후 사용하세요" (실측)
+        - 상품 필드: ITEM_NM(표시명), ERP_ITEM_NM(ERP명), SALE_PRICE(판매가, 문자열),
+          SALE_UNIT_PRICE(낱개 단가), ORDER_UNIT·BOX_QTY(화면 "BOX/20"), MIN_QTY,
+          IMG_FILE1(→ /emall/uploadimage/{IMG_FILE1}.png), ITEM_CD
+        - 품절: SOLD_OUT_YN == "Y" → 화면 "품절" 오버레이(div.pr-soldout).
+          ASSIGN_YN == "Y" → "담당자에게 문의 부탁드립니다" 오버레이(div.pr-assign),
+          장바구니 버튼 숨김·가격 0원 → 온라인 주문 불가라 품절로 처리 (실측)
+        - 상품 상세는 href="#" 팝업(POST)이라 브라우저로 바로 열 주소가 없음 → 메인 주소
+    """
+
+    BASE       = "https://www.dw1897.co.kr"
+    LOGIN_API  = "https://www.dw1897.co.kr/emall/proxy/logimax/auth/login"
+    STORE_API  = "https://www.dw1897.co.kr/emall/proxy/logimax/coa/extstore"
+    LOGIN_PAGE = "https://www.dw1897.co.kr/emall/"
+    MAIN_PAGE  = "https://www.dw1897.co.kr/emall/home/main"
+    IMG_BASE   = "https://www.dw1897.co.kr/emall/uploadimage/"
+
+    def _api_headers(self):
+        return {
+            **self._headers,
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": self.BASE,
+            "Referer": self.LOGIN_PAGE,
+            "connection_type": "web_emall",  # 사이트 JS(Beo.net.ajax)가 붙이는 헤더
+        }
+
+    async def _post_json(self, url, data):
+        await self._ensure_session()
+        async with self.session.post(url, data=data, headers=self._api_headers()) as resp:
+            text = await resp.text()
+        try:
+            return json.loads(text)
+        except Exception:
+            path = self.save_debug("응답", text)
+            raise RuntimeError(f"'{self.site_name}' 응답 형식이 예상과 다릅니다(JSON 아님) — 진단 파일: {path}")
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(password_missing_message(self.config, self.site_name))
+
+        await self._ensure_session()
+        try:  # JSESSIONID 먼저 받기 (브라우저와 같은 순서)
+            async with self.session.get(self.LOGIN_PAGE) as r:
+                await r.read()
+        except Exception:
+            pass
+
+        j = await self._post_json(self.LOGIN_API, {
+            "coakey": "USER_CO_LOGIN_R_001",
+            "IN_USER_ID": username,
+            "IN_PASSWD": password,
+            "IN_DEVICE": "D",
+        })
+        rows = j.get("data") or []
+        row = rows[0] if rows and isinstance(rows[0], dict) else {}
+        code = str(row.get("OUT_CODE", "")).strip()
+        if code == "2":
+            self.logged_in = True
+            return
+        msg = self.clean_text(str(row.get("OUT_MSG") or ""))
+        if not msg:
+            m = re.search(r"ORA-\d+:\s*([^\n\\]+)", str(j.get("message") or ""))
+            msg = self.clean_text(m.group(1)) if m else ""
+        if code in ("98", "99"):
+            raise LoginError(f"'{self.site_name}' 비밀번호 변경 필요 — 사이트에서 변경 후 다시 시도하세요"
+                             + (f" ({msg})" if msg else ""))
+        raise LoginError(f"'{self.site_name}' 로그인 실패" + (f": {msg}" if msg else ". ID/비밀번호를 확인하세요."))
+
+    async def verify_login(self) -> bool:
+        return self.logged_in
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        j = await self._post_json(self.STORE_API, {
+            "coakey": "USER_PRODUCT_R_001",
+            "IN_JOB": "ALL",
+            "IN_SEARCH_NM": query,
+        })
+        if "data" not in j:
+            msg = self.clean_text(str(j.get("message") or ""))
+            if j.get("resultCode") == 8 or "로그인" in msg:
+                raise LoginError(f"'{self.site_name}' 로그인 세션이 없습니다 — 로그인 설정을 확인하세요")
+            raise RuntimeError(f"'{self.site_name}' 검색 실패" + (f": {msg[:100]}" if msg else ""))
+
+        products = []
+        for d in j.get("data") or []:
+            if not isinstance(d, dict):
+                continue
+            try:
+                name = self.clean_text(str(d.get("ITEM_NM") or d.get("ERP_ITEM_NM") or ""))
+                if not name:
+                    continue
+                price = self.extract_price(str(d.get("SALE_PRICE") or ""))
+                unit = str(d.get("ORDER_UNIT") or "").strip()
+                box = str(d.get("BOX_QTY") or "").strip()
+                spec = f"{unit}/{box}" if unit and box else (unit or None)
+                sold_out = str(d.get("SOLD_OUT_YN") or "").upper() == "Y"
+                assign = str(d.get("ASSIGN_YN") or "").upper() == "Y"
+                img = str(d.get("IMG_FILE1") or "").strip()
+                img_url = f"{self.IMG_BASE}{img}.png" if img else None
+                extra = {"제조사": "동화약품"}
+                erp_nm = self.clean_text(str(d.get("ERP_ITEM_NM") or ""))
+                if erp_nm and erp_nm != name:
+                    extra["ERP명"] = erp_nm
+                unit_price = self.extract_price(str(d.get("SALE_UNIT_PRICE") or ""))
+                if unit_price > 0:
+                    extra["낱개단가"] = f"{unit_price:,}원"
+                if assign:
+                    extra["비고"] = "담당자 문의 상품"
+                min_qty = self.extract_price(str(d.get("MIN_QTY") or ""))
+                self.note_img_sample(d, missing=not img_url)
+                products.append(Product(
+                    name=name, price=price, unit_price=spec,
+                    url=self.MAIN_PAGE, site_name=self.site_name, image_url=img_url,
+                    min_order_qty=min_qty or None,
+                    in_stock=price > 0 and not sold_out and not assign,
+                    extra_info=extra,
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -4152,6 +4306,7 @@ CUSTOM_CRAWLERS = {
     "dspmall":         DspMallCrawler,
     "pharmpaymall":    PharmPayMallCrawler,
     "sunmepharm":      SunmePharmCrawler,
+    "dongwhaemall":    DongwhaEmallCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -4577,6 +4732,33 @@ SUNMEPHARM_PRESET = {
     "extra_config": {},
 }
 
+# ── 동화eMall: v11.5에서 추가. 로그인·검색 API와 응답 필드는 실계정으로 확인
+# (2026-11-27). 상세는 DongwhaEmallCrawler 참고.
+DONGWHAEMALL_PRESET = {
+    "name": "동화eMall",
+    "enabled": True,
+    "builtin": True,
+    "builtin_id": "dongwhaemall",
+    "crawler_type": "dongwhaemall",
+    "base_url": "https://www.dw1897.co.kr/emall",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "https://www.dw1897.co.kr/emall/proxy/logimax/auth/login",
+        "login_method": "custom",
+        "login_fields": {"coakey": "USER_CO_LOGIN_R_001", "IN_USER_ID": "{username}",
+                         "IN_PASSWD": "{password}", "IN_DEVICE": "D"},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
+    },
+    "extra_config": {},
+}
+
 BUILTIN_SITES = [
     BAROPHARM_PRESET,
     UPHARMMALL_PRESET,
@@ -4594,6 +4776,7 @@ BUILTIN_SITES = [
     DSPMALL_PRESET,
     PHARMPAYMALL_PRESET,
     SUNMEPHARM_PRESET,
+    DONGWHAEMALL_PRESET,
 ]
 
 def create_crawler(sc):
