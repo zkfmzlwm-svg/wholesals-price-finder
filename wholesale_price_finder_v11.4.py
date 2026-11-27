@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v11.3 — Windows GUI
+도매 최저가 비교 프로그램 v11.4 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.3.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.4.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,12 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.4 — 품절 판정 수정. 재고 값이 숫자 0이 아닌 "0"·"0.00"·"0개"·"1,200" 같은 문자열로 오면
+         비교 오류·변환 실패로 상품이 빠지거나(바로팜·HMP몰·플랫팜) 재고 있음으로 남던 문제
+         (광동몰 상세 재고 변환 실패 → 기본값 재고 있음, 동아DAPmall data-stockqty) 수정.
+         공통 판정 BaseCrawler.stock_in(): 0 이하·"품절"/"재고없음" 문구 → 품절. 재고 수량을
+         안 주는 사이트(유팜몰·새로팜·데시모네·팜스트리트·스마트팜·동아DAPmall·선미약품)는
+         상품 요소의 품절 표시(문구·soldout 클래스·alt="품절" 아이콘)로 보조 판정("품절임박" 제외).
   v11.3 — 로그인 비밀번호 방어 수정. 비밀번호 앞뒤 공백을 저장·사용 시 제거(붙여넣기로
          섞인 공백 때문에 로그인 실패하던 경우 대비). 저장된 비밀번호를 풀 수 없을 때
          (다른 PC 설정 파일·키 파일 변경) "비밀번호 미설정" 대신 다시 입력하라는 안내를 표시.
@@ -408,7 +414,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "11.3"
+__version__ = "11.4"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -805,6 +811,49 @@ class BaseCrawler(ABC):
     def clean_text(text):
         return re.sub(r"\s+", " ", text).strip() if text else ""
 
+    SOLDOUT_RE = re.compile(r"품절(?!\s*임박)|일시\s*품절|재고\s*없음|매진|sold\s*-?\s*out|out\s+of\s+stock",
+                            re.IGNORECASE)
+
+    @classmethod
+    def stock_in(cls, v, default: bool = True) -> bool:
+        """재고 값 → 재고 있음 여부 (v11.4).
+        숫자 0·"0"·"0.00"·"0개"·"1,200"·-3 등 형식에 상관없이 0 이하이면 품절.
+        "품절"/"없음" 등 문자열도 품절. 값이 없거나(None·"") 해석 불가하면 default."""
+        if v is None or isinstance(v, bool):
+            return default if v is None else v
+        if isinstance(v, (int, float)):
+            return v > 0
+        t = str(v).strip()
+        if not t:
+            return default
+        if cls.SOLDOUT_RE.search(t):
+            return False
+        m = re.search(r"-?\d+(?:\.\d+)?", t.replace(",", ""))
+        if m:
+            return float(m.group()) > 0
+        return default
+
+    @classmethod
+    def soldout_mark(cls, el) -> bool:
+        """상품 HTML 요소에 품절 표시(문구·soldout 클래스·alt="품절" 아이콘)가 있는지 (v11.4).
+        재고 수량을 주지 않는 사이트의 보조 판정용. "품절임박"은 제외."""
+        if el is None:
+            return False
+        try:
+            if cls.SOLDOUT_RE.search(el.get_text(" ")):
+                return True
+            for t in [el] + el.find_all(True):
+                cl = " ".join(t.get("class") or []).lower()
+                if "soldout" in cl or "sold_out" in cl or "sold-out" in cl:
+                    return True
+                alt = (t.get("alt") or "") + " " + (t.get("title") or "")
+                src = (t.get("src") or "").lower() if t.name == "img" else ""
+                if (alt.strip() and cls.SOLDOUT_RE.search(alt)) or "soldout" in src or "sold_out" in src:
+                    return True
+        except Exception:
+            return False
+        return False
+
     @staticmethod
     def extract_alert(html):
         m = re.search(r"""alert\(\s*(["'])(.*?)\1\s*\)""", html or "", re.S)
@@ -1052,7 +1101,7 @@ class BaroPharmCrawler(BaseCrawler):
                         url=f"{self.WEB_PRODUCT}{quote(query)}",
                         site_name=self.site_name,
                         image_url=img,
-                        in_stock=(item.get("total_qty") or 0) > 0,
+                        in_stock=self.stock_in(item.get("total_qty"), default=False),
                         extra_info=extra,
                     ))
                 except Exception:
@@ -1245,7 +1294,7 @@ class UPharmMallCrawler(BaseCrawler):
                     url=search_url,
                     site_name=self.site_name,
                     image_url=img_url,
-                    in_stock=price > 0,
+                    in_stock=price > 0 and not self.soldout_mark(row),  # v11.4: 품절 표시 보조 판정
                     extra_info=extra,
                 ))
             except Exception:
@@ -1449,7 +1498,7 @@ class HMPMallCrawler(BaseCrawler):
                     url=f"{self.BASE}/search/searchTwoStepList.do",
                     site_name=self.site_name,
                     image_url=img_url,
-                    in_stock=stock > 0 if stock else False,
+                    in_stock=self.stock_in(stock, default=False),
                     extra_info=extra,
                 ))
             except Exception:
@@ -1577,7 +1626,7 @@ class PlatPharmCrawler(BaseCrawler):
                 price = item.get("price") or 0
                 std = item.get("std", "")  # "(개)", "(Box)" 등
                 vendor = item.get("vendorName", "")
-                stock = item.get("stockCount") or 0
+                stock = 1 if self.stock_in(item.get("stockCount"), default=False) else 0
                 status = item.get("status", "")
                 category = item.get("cateName", "")
                 thumb = item.get("thumbImg1", "")
@@ -1754,7 +1803,7 @@ class SaeroPharmCrawler(BaseCrawler):
                     url=search_url,
                     site_name=self.site_name,
                     image_url=img_url,
-                    in_stock=price > 0,
+                    in_stock=price > 0 and not self.soldout_mark(item),  # v11.4: 품절 표시 보조 판정
                     extra_info={},
                 ))
             except Exception:
@@ -2173,7 +2222,7 @@ class DesimoneCrawler(BaseCrawler):
                     url=prod_url or search_url,
                     site_name=self.site_name,
                     image_url=img_url,
-                    in_stock=price > 0,
+                    in_stock=price > 0 and not self.soldout_mark(item),  # v11.4: 품절 표시 보조 판정
                     extra_info=extra,
                 ))
             except Exception:
@@ -2417,7 +2466,7 @@ class PharmStreetCrawler(BaseCrawler):
                     url=search_url,
                     site_name=self.site_name,
                     image_url=img_url,
-                    in_stock=True,
+                    in_stock=not self.soldout_mark(dl),  # v11.4: 품절 표시 보조 판정
                     extra_info=extra,
                 ))
             except Exception:
@@ -2662,7 +2711,7 @@ class SmartPharmCrawler(BaseCrawler):
                     site_name=self.site_name,
                     image_url=img_url,
                     image_alts=img_alts,
-                    in_stock=True,
+                    in_stock=not self.soldout_mark(row),  # v11.4: 품절 표시 보조 판정
                     extra_info=extra,
                 ))
             except Exception:
@@ -3196,7 +3245,7 @@ class DapMallCrawler(BaseCrawler):
                 img_url = self.full_url(img_src) if img_src else None
                 qty_el = item.select_one("input.quantity")
                 stock_qty = qty_el.get("data-stockqty", "") if qty_el else ""
-                in_stock = stock_qty == "" or int(stock_qty or 0) > 0
+                in_stock = self.stock_in(stock_qty) and not self.soldout_mark(item)
                 products.append(Product(
                     name=name, price=price, unit_price=None,
                     url=prod_url, site_name=self.site_name, image_url=img_url, in_stock=in_stock,
@@ -3304,7 +3353,10 @@ class KDShopCrawler(BaseCrawler):
             stocks = []
             for tr in rows:
                 dealer_el = tr.select_one("#dealerName")
-                stocks.append((int(tr.get("data-stock") or 0),
+                # v11.4: "0.00"·"1,200" 형식도 정수로 (예전엔 int() 실패 → 조회 실패 → 재고 있음 처리)
+                st_raw = str(tr.get("data-stock") or "0").replace(",", "")
+                m = re.search(r"-?\d+(?:\.\d+)?", st_raw)
+                stocks.append((int(float(m.group())) if m else 0,
                                self.clean_text(dealer_el.get_text()) if dealer_el else ""))
             best = max(stocks, key=lambda s: s[0])
             return best[0] > 0, best[1]
@@ -3809,7 +3861,7 @@ class PharmPayMallCrawler(BaseCrawler):
                 stand = self.clean_text(item.get("stand") or "")
                 maker = self.clean_text(item.get("syncodenm") or "")
                 stock_raw = item.get("stocksum")
-                in_stock = True if stock_raw in (None, "") else self._to_int(stock_raw) > 0
+                in_stock = self.stock_in(stock_raw)
                 img = item.get("img2") or ""
                 # v10.0: 이미지 없는 상품은 img2가 "/imageFiles/product"처럼 파일명 없는
                 # 폴더 경로로 옴(사용자 진단 파일) — 요청하면 응답 없이 10초 시간 초과
@@ -4031,11 +4083,10 @@ class SunmePharmCrawler(BaseCrawler):
                 seen.add(key)
 
                 stock_txt = cell("재고")
-                stock_num = self._int_or_none(stock_txt)
-                if stock_num is not None:
-                    in_stock = stock_num > 0
+                if re.search(r"불가|^\s*[X×]\s*$", stock_txt or ""):
+                    in_stock = False
                 else:
-                    in_stock = not re.search(r"품절|없음|불가|X", stock_txt or "")
+                    in_stock = self.stock_in(stock_txt) and not self.soldout_mark(tr)
 
                 extra = {}
                 for label in ("제조사", "규격", "보험가", "KD코드"):
