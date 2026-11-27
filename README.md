@@ -3,13 +3,13 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v11.4
+## 현재 버전: v11.5
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
 - 사이트 추가 → 소수점 버전업 (예: 1.0 → 1.1)
 
-## 내장 지원 사이트 (16개)
+## 내장 지원 사이트 (17개)
 | 사이트 | 기술 스택 | 로그인 방식 |
 |--------|-----------|-------------|
 | 바로팜 | React SPA + REST | Token 인증 |
@@ -28,6 +28,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 | 동성몰 | NHN Commerce(고도몰5, moment 스킨) (검색/목록 파싱 실캡쳐 확인됨) | AJAX 폼 POST (평문) |
 | 팜페이몰 | ASP.NET + 자체 JDINS 프레임워크 (로그인/검색 실캡쳐 확인됨) | AJAX POST /loginChk.json (평문 userid/userpwd) |
 | 선미약품 | Classic ASP 웹주문시스템(WOS), http 전용 (로그인 확인됨, 검색 결과 구조는 추정) | 폼 POST (평문 tx_id/tx_pw) |
+| 동화eMall | 동화약품 자체 몰, Beo 프레임워크 + logimax JSON API (로그인/검색/품절 실계정 확인) | AJAX POST /emall/proxy/logimax/auth/login (평문 IN_USER_ID/IN_PASSWD) |
 
 > 대웅더샵(`DaewoongTheShopCrawler`)/동아DAPmall(`DapMallCrawler`)은 v2.4에서
 > 공유 GenericCrawler 대신 전용 크롤러 클래스로 분리됐습니다. 이제 내장
@@ -170,7 +171,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v11.4.py
+python wholesale_price_finder_v11.5.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -200,10 +201,13 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v11.4.py
+pyinstaller --onefile --windowed wholesale_price_finder_v11.5.py
 ```
 
 ## 변경 이력
+- v11.5 — 사이트 추가: 동화eMall(www.dw1897.co.kr/emall). 로그인 `POST /emall/proxy/logimax/auth/login`
+  (coakey=USER_CO_LOGIN_R_001, 평문), 검색 `POST /emall/proxy/logimax/coa/extstore`(coakey=USER_PRODUCT_R_001).
+  품절은 SOLD_OUT_YN, "담당자 문의" 상품(ASSIGN_YN, 0원·주문 불가)도 품절로 표시. 실계정으로 확인.
 - v11.4 — 품절 판정 수정. 재고가 "0"·"0.00"·"0개" 같은 문자열로 올 때 품절로 표시되지 않거나 상품이
   빠지던 문제 수정(바로팜·HMP몰·플랫팜·광동몰·동아DAPmall·팜페이몰·선미약품). 재고 수량이 없는
   사이트는 상품 요소의 품절 표시(문구·soldout 클래스·품절 아이콘)로 보조 판정.
