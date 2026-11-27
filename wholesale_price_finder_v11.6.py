@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v11.5 — Windows GUI
+도매 최저가 비교 프로그램 v11.6 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.5.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.6.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
-  pip install cryptography   (선택 — 비밀번호 강력 암호화)
+  pip install cryptography   (선택 — 비밀번호 강력 암호화. GC 프리미온 검색엔 필수)
   pip install pillow         (선택 — 결과창 JPEG 이미지 표시. 없으면 PNG/GIF만 표시)
 
 버전 정책 (v1.0부터 적용):
@@ -15,6 +15,12 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.6 — 사이트 추가: GC 프리미온(premion.gccorp.com, GC녹십자 자체 몰). Vue SPA로 모든 /api
+         요청·응답이 AES 암호화(전송 AES-256-CBC + 로그인 필드 PBKDF2/AES-128). 로그인 POST
+         /api/base/auth/login(userID 암호화 객체 + password SHA-256 hex, 응답 token → "Bearer+" 헤더), 검색 POST
+         /api/product/getProductTotalList(가격 없음) + 품목별 가격 /api/product/productOrgQtySale
+         (수량별 할인 단가). 품절은 IsSoldOutProduct. cryptography 패키지 필요. 실계정으로 확인.
+         PremionCrawler.
   v11.5 — 사이트 추가: 동화eMall(www.dw1897.co.kr/emall, 동화약품 자체 몰). JSON API 구조.
          로그인 POST /emall/proxy/logimax/auth/login(coakey=USER_CO_LOGIN_R_001, IN_USER_ID/
          IN_PASSWD 평문, 성공 data[0].OUT_CODE="2"), 검색 POST .../coa/extstore
@@ -420,7 +426,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "11.5"
+__version__ = "11.6"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -4289,6 +4295,219 @@ class DongwhaEmallCrawler(BaseCrawler):
         return products[:max_results]
 
 
+class PremionCrawler(BaseCrawler):
+    """
+    GC 프리미온 (premion.gccorp.com) 전용 크롤러. — v11.6에서 추가.
+
+    GC녹십자 자체 약국 몰. Vue SPA + /api JSON. 모든 /api 요청·응답 본문이 AES로
+    암호화돼 오감 (2026-11-27 실계정 확인):
+      - 전송 암호화: AES-256-CBC/PKCS7, 키 = 32자 hex 문자열(ASCII 그대로 키).
+        본문 = base64( IV의 hex 32자(ASCII) + 암호문 ), Content-Type: application/json.
+        응답도 같은 형식. 토큰 없음·만료 시엔 평문 JSON 401 {"error":"Unauthorized"}.
+      - 로그인 필드 암호화: PBKDF2-HMAC-SHA1(passphrase, salt 16B, 10000회 → 16B 키) +
+        AES-128-CBC/PKCS7. {"iv": hex, "salt": hex, "str": base64}.
+    로그인: POST /api/base/auth/login  평문 {userID: {iv,salt,str}, password: SHA256 hex}
+        - userID는 위 {iv,salt,str} 객체, password는 SHA-256(UTF-8) 소문자 hex 64자 문자열
+          (사이트 로그인 폼 JS 확인. 객체를 보내면 서버 500 "LinkedHashMap cannot be cast to String")
+        - 성공: 응답에 token(JWT, 10분), refreshToken. 이후 요청 헤더
+          Authorization: "Bearer+" + token (사이트 JS와 동일)
+        - 실패: HTTP 200, token 없이 message에 "입력한 정보와 일치하는 사용자가 존재하지
+          않습니다.<br/>..." (가짜 계정으로 실측)
+    검색: POST /api/product/getProductTotalList {GroupCode:"56", SearchName, SearchSort:"name"}
+        - "56" = 최상위 'Brand' 분류(헤더 검색창과 동일). 결과 배열에 가격은 없음.
+        - 품절: IsSoldOutProduct / SoldOutProduct == true (화면 "SOLD OUT"), SellProduct=false면 판매 안 함
+        - ProductName(표시명), ThumbnailUrl(상대 경로), MinQuantity, OrderUnitQuantity,
+          OrderableStockQuantity(주문 가능 재고)
+    가격: POST /api/product/productOrgQtySale {ProductCode} → 수량별 단가 배열
+        - rownum 1의 Price = 기본 단가, 이후 행 = Qty 이상 주문 시 할인 단가(Price 0 행은 끝 표시)
+        - ProductName = ERP 품목명(규격·제조사 포함, 예 "비맥스골드정 60TAB-2EA 한풍제약")
+    GC 제품만 판매 — 타사 제품 검색은 0건이 정상.
+    """
+
+    BASE        = "https://premion.gccorp.com"
+    LOGIN_API   = "https://premion.gccorp.com/api/base/auth/login"
+    SEARCH_API  = "https://premion.gccorp.com/api/product/getProductTotalList"
+    PRICE_API   = "https://premion.gccorp.com/api/product/productOrgQtySale"
+    PRODUCT_URL = "https://premion.gccorp.com/market-on/product/{code}"
+    BRAND_ROOT  = "56"
+
+    # 사이트 JS(app.*.js)에 들어 있는 고정값 — 사이트가 바뀌면 같이 갱신해야 함
+    TRANSPORT_KEY    = "4d526b222be7d09c526cd363e3ebe215"   # 32자 hex 문자열 (JS: Base64.parse(Hex 리터럴→문자열))
+    LOGIN_PASSPHRASE = "vmflaldhs21!"   # 12자 (app.js 리터럴)
+    PBKDF2_ITER      = 10000
+
+    def __init__(self, site_config: dict):
+        super().__init__(site_config)
+        self._token = None
+
+    # ── 암호화 ──
+    @staticmethod
+    def _aes_cbc(key: bytes, iv: bytes, data: bytes, encrypt: bool) -> bytes:
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        from cryptography.hazmat.primitives import padding
+        c = Cipher(algorithms.AES(key), modes.CBC(iv))
+        if encrypt:
+            p = padding.PKCS7(128).padder()
+            data = p.update(data) + p.finalize()
+            e = c.encryptor()
+            return e.update(data) + e.finalize()
+        d = c.decryptor()
+        out = d.update(data) + d.finalize()
+        u = padding.PKCS7(128).unpadder()
+        return u.update(out) + u.finalize()
+
+    def _check_crypto(self):
+        try:
+            import cryptography  # noqa: F401
+        except ImportError:
+            raise LoginError(f"'{self.site_name}'은 cryptography 패키지가 필요합니다 — pip install cryptography")
+
+    def _encrypt_body(self, obj) -> str:
+        import os
+        iv = os.urandom(16)
+        ct = self._aes_cbc(self.TRANSPORT_KEY.encode(), iv,
+                           json.dumps(obj, ensure_ascii=False).encode("utf-8"), True)
+        return base64.b64encode(iv.hex().encode() + ct).decode()
+
+    def _decrypt_body(self, text: str):
+        raw = base64.b64decode(text.strip())
+        iv = bytes.fromhex(raw[:32].decode("ascii"))
+        return json.loads(self._aes_cbc(self.TRANSPORT_KEY.encode(), iv, raw[32:], False).decode("utf-8"))
+
+    def _encrypt_field(self, value: str) -> dict:
+        import os, hashlib
+        salt, iv = os.urandom(16), os.urandom(16)
+        key = hashlib.pbkdf2_hmac("sha1", self.LOGIN_PASSPHRASE.encode("utf-8"), salt, self.PBKDF2_ITER, 16)
+        ct = self._aes_cbc(key, iv, value.encode("utf-8"), True)
+        return {"iv": iv.hex(), "salt": salt.hex(), "str": base64.b64encode(ct).decode()}
+
+    async def _api(self, url, obj, auth=True):
+        """암호화해 POST하고 복호화한 JSON을 돌려줌. (status, data) — 평문 오류 응답이면 data는 dict"""
+        await self._ensure_session()
+        headers = {
+            **self._headers,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/plain, */*",
+            "Origin": self.BASE,
+            "Referer": self.BASE + "/",
+        }
+        if auth and self._token:
+            headers["Authorization"] = "Bearer+" + self._token
+        async with self.session.post(url, data=self._encrypt_body(obj), headers=headers) as resp:
+            status, text = resp.status, await resp.text()
+        t = (text or "").strip()
+        if not t:
+            return status, None
+        if t.startswith("{") or t.startswith("["):   # 평문 오류(401/500 등)
+            try:
+                return status, json.loads(t)
+            except Exception:
+                pass
+        try:
+            return status, self._decrypt_body(t)
+        except Exception:
+            path = self.save_debug(f"응답{status}", text)
+            raise RuntimeError(f"'{self.site_name}' 응답을 해석할 수 없습니다(암호화 방식 변경 가능성) — 진단 파일: {path}")
+
+    async def login(self):
+        username = self.credentials.get("username", "")
+        if not username:
+            return
+        password = get_site_password(self.config)
+        if not password:
+            raise LoginError(password_missing_message(self.config, self.site_name))
+        self._check_crypto()
+        import hashlib
+
+        status, j = await self._api(self.LOGIN_API, {
+            "userID": self._encrypt_field(username),
+            "password": hashlib.sha256(password.encode("utf-8")).hexdigest(),  # 사이트 JS: SHA256(pass)
+        }, auth=False)
+        if isinstance(j, dict) and j.get("token"):
+            self._token = str(j["token"])
+            self.logged_in = True
+            return
+        msg = ""
+        if isinstance(j, dict):
+            msg = str(j.get("loginMessage") or j.get("message") or "")
+            msg = self.clean_text(re.sub(r"<br\s*/?>", " ", msg))
+        if status in (401, 403) and not msg:
+            msg = "아이디 또는 비밀번호가 올바르지 않습니다"
+        raise LoginError(f"'{self.site_name}' 로그인 실패" + (f": {msg[:120]}" if msg else ". ID/비밀번호를 확인하세요."))
+
+    async def verify_login(self) -> bool:
+        return self.logged_in
+
+    async def _price_rows(self, code):
+        try:
+            status, rows = await self._api(self.PRICE_API, {"ProductCode": code})
+        except Exception:
+            return []
+        return rows if isinstance(rows, list) else []
+
+    async def search(self, query: str, max_results: int = 10) -> list:
+        self._check_crypto()
+        status, data = await self._api(self.SEARCH_API, {
+            "GroupCode": self.BRAND_ROOT, "SearchName": query, "SearchSort": "name",
+        })
+        if status == 401:
+            raise LoginError(f"'{self.site_name}' 로그인 세션이 없습니다 — 로그인 설정을 확인하세요")
+        if not isinstance(data, list):
+            msg = self.clean_text(str((data or {}).get("message") or "")) if isinstance(data, dict) else ""
+            raise RuntimeError(f"'{self.site_name}' 검색 실패 (HTTP {status})" + (f": {msg[:100]}" if msg else ""))
+
+        items = [d for d in data if isinstance(d, dict) and d.get("ProductCode")
+                 and d.get("UseProduct", True) is not False]
+        items = items[:max(max_results * 2, max_results)]
+        price_lists = await asyncio.gather(*(self._price_rows(d["ProductCode"]) for d in items))
+
+        products = []
+        for d, rows in zip(items, price_lists):
+            try:
+                name = self.clean_text(str(d.get("ProductName") or ""))
+                if not name:
+                    continue
+                code = str(d.get("ProductCode"))
+                rows = sorted((r for r in rows if isinstance(r, dict)),
+                              key=lambda r: int(r.get("rownum") or 0))
+                base = rows[0] if rows else {}
+                price = self.extract_price(str(base.get("Price") or ""))
+                sold_out = bool(d.get("IsSoldOutProduct") or d.get("SoldOutProduct"))
+                not_sell = d.get("SellProduct") is False
+                extra = {}
+                erp = self.clean_text(str(base.get("ProductName") or ""))
+                if erp and erp != name:
+                    extra["품목명"] = erp
+                tiers = []
+                for r in rows[1:]:
+                    p, q = self.extract_price(str(r.get("Price") or "")), self.extract_price(str(r.get("Qty") or ""))
+                    if p > 0 and q > 1:
+                        tiers.append(f"{q:,}개↑ {p:,}원")
+                if tiers:
+                    extra["수량할인"] = ", ".join(tiers)
+                unit = d.get("OrderUnitQuantity")
+                if unit and str(unit) not in ("0", "1"):
+                    extra["주문단위"] = f"{unit}개"
+                if not_sell:
+                    extra["비고"] = "판매 중지"
+                thumb = str(d.get("ThumbnailUrl") or "").strip()
+                img_url = self.BASE + quote(thumb, safe="/:%") if thumb.startswith("/") else (thumb or None)
+                min_qty = self.extract_price(str(d.get("MinQuantity") or ""))
+                self.note_img_sample(d, missing=not img_url)
+                products.append(Product(
+                    name=name, price=price, unit_price=None,
+                    url=self.PRODUCT_URL.format(code=code), site_name=self.site_name,
+                    image_url=img_url, min_order_qty=min_qty or None,
+                    in_stock=price > 0 and not sold_out and not not_sell,
+                    extra_info=extra,
+                ))
+            except Exception:
+                continue
+
+        products.sort(key=lambda p: p.price if p.price > 0 else 999999999)
+        return products[:max_results]
+
+
 CUSTOM_CRAWLERS = {
     "baropharm":      BaroPharmCrawler,
     "upharmmall":     UPharmMallCrawler,
@@ -4307,6 +4526,7 @@ CUSTOM_CRAWLERS = {
     "pharmpaymall":    PharmPayMallCrawler,
     "sunmepharm":      SunmePharmCrawler,
     "dongwhaemall":    DongwhaEmallCrawler,
+    "premion":         PremionCrawler,
 }
 
 BAROPHARM_PRESET = {
@@ -4759,6 +4979,32 @@ DONGWHAEMALL_PRESET = {
     "extra_config": {},
 }
 
+# ── GC 프리미온: v11.6에서 추가. 로그인·검색 API와 AES 암호화 방식은 실계정으로
+# 확인(2026-11-27). 상세는 PremionCrawler 참고.
+PREMION_PRESET = {
+    "name": "GC 프리미온",
+    "enabled": True,
+    "builtin": True,
+    "builtin_id": "premion",
+    "crawler_type": "premion",
+    "base_url": "https://premion.gccorp.com",
+    "requires_login": True,
+    "credentials": {"username": "", "password_encrypted": ""},
+    "login_config": {
+        "login_url": "https://premion.gccorp.com/api/base/auth/login",
+        "login_method": "custom",
+        "login_fields": {},
+        "csrf_selector": None, "csrf_field_name": None,
+        "login_check_url": None, "login_check_selector": None, "login_check_text": None,
+    },
+    "selectors": {
+        "search_url_pattern": "",
+        "product_list": "", "product_name": "", "product_price": "",
+        "product_link": "", "product_image": "",
+    },
+    "extra_config": {},
+}
+
 BUILTIN_SITES = [
     BAROPHARM_PRESET,
     UPHARMMALL_PRESET,
@@ -4777,6 +5023,7 @@ BUILTIN_SITES = [
     PHARMPAYMALL_PRESET,
     SUNMEPHARM_PRESET,
     DONGWHAEMALL_PRESET,
+    PREMION_PRESET,
 ]
 
 def create_crawler(sc):
