@@ -18,7 +18,8 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   v11.7 — 비밀번호가 한글로 저장되는 문제 대응(팜페이몰 "비밀번호가 일치하지 않습니다" 등). Tk 입력칸은
          한/영 키가 한글 상태면 "qwer"를 "ㅂㅈㄷㄱ"로 받는데 ● 표시라 보이지 않음. 저장 시 한글이
          섞였으면 두벌식 기준 영문 변환을 제안, 로그인 설정 창에 "비밀번호 표시" 추가, 로그인
-         테스트 실패 시 저장된 비밀번호에 한글이 있으면 다시 입력하라고 안내.
+         테스트 실패 시 저장된 비밀번호에 한글이 있으면 다시 입력하라고 안내. 동성몰 로그인에
+         브라우저와 같은 X-CSRF-Token 헤더 추가, code 700은 아이디·비번 불일치 공통임을 표시.
   v11.6 — 사이트 추가: GC 프리미온(premion.gccorp.com, GC녹십자 자체 몰). Vue SPA로 모든 /api
          요청·응답이 AES 암호화(전송 AES-256-CBC + 로그인 필드 PBKDF2/AES-128). 로그인 POST
          /api/base/auth/login(userID 암호화 객체 + password SHA-256 hex, 응답 token → "Bearer+" 헤더), 검색 POST
@@ -3571,7 +3572,12 @@ class DspMallCrawler(BaseCrawler):
 
         # 로그인 폼 페이지 먼저 방문(세션 쿠키 GD5SESSID 발급받기)
         async with self.session.get(self.LOGIN_PAGE, headers=self._headers) as resp:
-            await resp.text()
+            page_html = await resp.text()
+
+        # v11.7: 사이트 gd_common.js의 $.ajaxSetup이 모든 AJAX에
+        # X-CSRF-Token(<meta name="csrf-token">) 헤더를 붙인다 — 브라우저와 같게 보냄.
+        m = re.search(r'<meta\s+name="csrf-token"\s+content="([^"]*)"', page_html or "")
+        csrf_headers = {"X-CSRF-Token": m.group(1)} if m else {}
 
         login_data = {
             "returnUrl": "/",
@@ -3588,6 +3594,7 @@ class DspMallCrawler(BaseCrawler):
                 "Referer": self.LOGIN_PAGE,
                 "Origin": self.BASE,
                 "Accept": "application/json, text/javascript, */*; q=0.01",
+                **csrf_headers,
             },
         ) as resp:
             body = await resp.text()
@@ -3600,6 +3607,10 @@ class DspMallCrawler(BaseCrawler):
 
         if isinstance(data, dict) and (data.get("code") or data.get("message")):
             msg = data.get("message") or f"오류 코드 {data.get('code')}"
+            # v11.7: 동성몰은 없는 아이디와 틀린 비밀번호에 모두 code 700
+            # "회원정보를 찾을 수 없습니다"를 돌려줘 문구만으로는 구분이 안 됨.
+            if str(data.get("code")) == "700":
+                msg += " (아이디 또는 비밀번호 불일치 — 동성몰은 둘을 구분하지 않음)"
             raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
 
         # 응답 본문에 로그인 실패 안내 문구가 그대로 담겨 오는 경우 방어

@@ -207,7 +207,7 @@ pyinstaller --onefile --windowed wholesale_price_finder_v11.7.py
 
 ## 변경 이력
 - v11.7 — 비밀번호가 한글로 저장되는 문제 대응. 한/영 키가 한글 상태에서 입력된 비밀번호를 저장할 때 영문 변환을
-  제안하고, 로그인 설정 창에 "비밀번호 표시" 추가, 로그인 테스트 실패 시 한글 섞인 비밀번호를 안내.
+  제안하고, 로그인 설정 창에 "비밀번호 표시" 추가, 로그인 테스트 실패 시 한글 섞인 비밀번호를 안내. 동성몰 로그인에 브라우저와 같은 X-CSRF-Token 헤더 추가.
 - v11.6 — 사이트 추가: GC 프리미온(premion.gccorp.com). 모든 API 요청·응답이 AES로 암호화되는 구조라
   전송 암호화(AES-256-CBC)와 로그인 아이디 암호화(PBKDF2+AES-128)를 재현. 검색 `POST /api/product/getProductTotalList`,
   가격은 품목별 `POST /api/product/productOrgQtySale`(수량별 할인 단가도 표시). 품절은 IsSoldOutProduct.
