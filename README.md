@@ -3,7 +3,7 @@
 여러 약품 도매 사이트에서 특정 제품의 최저가를 동시 검색하는 프로그램입니다.
 Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수 있습니다.
 
-## 현재 버전: v11.6
+## 현재 버전: v11.7
 
 ### 버전 정책
 - 기능 추가/변경 → 정수 버전업 (예: 1.0 → 2.0)
@@ -172,7 +172,7 @@ Windows 데스크탑 앱과 웹 버전(브라우저) 두 가지로 실행할 수
 ### 데스크탑 앱
 ```bash
 pip install -r requirements.txt
-python wholesale_price_finder_v11.6.py
+python wholesale_price_finder_v11.7.py
 ```
 
 ### 웹 버전 (브라우저)
@@ -202,10 +202,12 @@ python web/server.py          # http://127.0.0.1:8000 이 자동으로 열림
 ## exe 변환
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed wholesale_price_finder_v11.6.py
+pyinstaller --onefile --windowed wholesale_price_finder_v11.7.py
 ```
 
 ## 변경 이력
+- v11.7 — 비밀번호가 한글로 저장되는 문제 대응. 한/영 키가 한글 상태에서 입력된 비밀번호를 저장할 때 영문 변환을
+  제안하고, 로그인 설정 창에 "비밀번호 표시" 추가, 로그인 테스트 실패 시 한글 섞인 비밀번호를 안내.
 - v11.6 — 사이트 추가: GC 프리미온(premion.gccorp.com). 모든 API 요청·응답이 AES로 암호화되는 구조라
   전송 암호화(AES-256-CBC)와 로그인 아이디 암호화(PBKDF2+AES-128)를 재현. 검색 `POST /api/product/getProductTotalList`,
   가격은 품목별 `POST /api/product/productOrgQtySale`(수량별 할인 단가도 표시). 품절은 IsSoldOutProduct.
