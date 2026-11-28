@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-도매 최저가 비교 프로그램 v11.6 — Windows GUI
+도매 최저가 비교 프로그램 v11.7 — Windows GUI
 =============================================
 tkinter 기반 데스크탑 프로그램. 파이썬만 설치되어 있으면 별도 설치 없이 실행 가능.
-PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.6.py
+PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_price_finder_v11.7.py
 
 필요 패키지:
   pip install aiohttp beautifulsoup4
@@ -15,6 +15,11 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
   - 사이트 추가     → 소수점 버전업 (예: 1.0 → 1.1)
 
 변경 이력:
+  v11.7 — 비밀번호가 한글로 저장되는 문제 대응(팜페이몰 "비밀번호가 일치하지 않습니다" 등). Tk 입력칸은
+         한/영 키가 한글 상태면 "qwer"를 "ㅂㅈㄷㄱ"로 받는데 ● 표시라 보이지 않음. 저장 시 한글이
+         섞였으면 두벌식 기준 영문 변환을 제안, 로그인 설정 창에 "비밀번호 표시" 추가, 로그인
+         테스트 실패 시 저장된 비밀번호에 한글이 있으면 다시 입력하라고 안내. 동성몰 로그인에
+         브라우저와 같은 X-CSRF-Token 헤더 추가, code 700은 아이디·비번 불일치 공통임을 표시.
   v11.6 — 사이트 추가: GC 프리미온(premion.gccorp.com, GC녹십자 자체 몰). Vue SPA로 모든 /api
          요청·응답이 AES 암호화(전송 AES-256-CBC + 로그인 필드 PBKDF2/AES-128). 로그인 POST
          /api/base/auth/login(userID 암호화 객체 + password SHA-256 hex, 응답 token → "Bearer+" 헤더), 검색 POST
@@ -426,7 +431,7 @@ PyInstaller로 exe 변환 가능: pyinstaller --onefile --windowed wholesale_pri
          내장(builtin) 표시 소실, 미사용 import 제거.
 """
 
-__version__ = "11.6"
+__version__ = "11.7"
 
 # ═══════════════════════════════════════════════════════════════
 # 표준 라이브러리
@@ -694,6 +699,70 @@ def get_site_password(site: dict) -> str:
         return cred_mgr.decrypt(enc).strip()
     except Exception:
         return ""
+
+
+# v11.7: 한/영 키가 한글 상태에서 비밀번호를 입력하면 Tk 입력칸은 브라우저 비밀번호
+# 칸과 달리 IME를 끄지 않아 "qwer"가 "ㅂㅈㄷㄱ"처럼 한글로 저장된다(● 표시라 안 보임).
+# → 아이디는 맞는데 비밀번호만 틀리는 로그인 실패의 원인. 두벌식 자판 기준으로 되돌린다.
+_KO_KEY = {
+    "ㅂ": "q", "ㅈ": "w", "ㄷ": "e", "ㄱ": "r", "ㅅ": "t", "ㅛ": "y", "ㅕ": "u", "ㅑ": "i",
+    "ㅐ": "o", "ㅔ": "p", "ㅁ": "a", "ㄴ": "s", "ㅇ": "d", "ㄹ": "f", "ㅎ": "g", "ㅗ": "h",
+    "ㅓ": "j", "ㅏ": "k", "ㅣ": "l", "ㅋ": "z", "ㅌ": "x", "ㅊ": "c", "ㅍ": "v", "ㅠ": "b",
+    "ㅜ": "n", "ㅡ": "m", "ㅃ": "Q", "ㅉ": "W", "ㄸ": "E", "ㄲ": "R", "ㅆ": "T", "ㅒ": "O",
+    "ㅖ": "P", "ㅘ": "hk", "ㅙ": "ho", "ㅚ": "hl", "ㅝ": "nj", "ㅞ": "np", "ㅟ": "nl",
+    "ㅢ": "ml", "ㄳ": "rt", "ㄵ": "sw", "ㄶ": "sg", "ㄺ": "fr", "ㄻ": "fa", "ㄼ": "fq",
+    "ㄽ": "ft", "ㄾ": "fx", "ㄿ": "fv", "ㅀ": "fg", "ㅄ": "qt",
+}
+_KO_CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+_KO_JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+_KO_JONG = ["", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ",
+            "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"]
+
+
+def has_hangul(text: str) -> bool:
+    return any("\u3131" <= ch <= "\u318e" or "\uac00" <= ch <= "\ud7a3" for ch in text or "")
+
+
+def hangul_to_qwerty(text: str) -> str:
+    """한글 자판 상태로 친 글자를 영문 자판 키로 되돌림 (예: "ㅂㅈㄷㄱ1234" → "qwer1234")."""
+    out = []
+    for ch in text:
+        code = ord(ch) - 0xAC00
+        if 0 <= code < 11172:
+            cho, rest = divmod(code, 588)
+            jung, jong = divmod(rest, 28)
+            for jamo in (_KO_CHO[cho], _KO_JUNG[jung], _KO_JONG[jong]):
+                out.append(_KO_KEY.get(jamo, jamo))
+        else:
+            out.append(_KO_KEY.get(ch, ch))
+    return "".join(out)
+
+
+def confirm_password_input(pw: str, parent) -> Optional[str]:
+    """저장 직전 비밀번호 확인. 한글이 섞였으면 영문 변환 여부를 묻는다.
+    반환: 저장할 비밀번호, 저장 취소면 None."""
+    if not has_hangul(pw):
+        return pw
+    fixed = hangul_to_qwerty(pw)
+    ans = messagebox.askyesnocancel(
+        "비밀번호 확인",
+        "비밀번호에 한글이 들어 있습니다.\n"
+        "한/영 키가 한글 상태에서 입력된 것 같습니다.\n\n"
+        f"영문 자판 기준으로 바꾸면: {fixed}\n\n"
+        "예: 바꿔서 저장   아니오: 입력한 그대로 저장   취소: 다시 입력",
+        parent=parent)
+    if ans is None:
+        return None
+    return fixed if ans else pw
+
+
+def login_failure_hint(site: dict) -> str:
+    """로그인 실패 시 덧붙일 진단 문구 (v11.7)."""
+    pw = get_site_password(site)
+    if pw and has_hangul(pw):
+        return ("\n   → 저장된 비밀번호에 한글이 섞여 있습니다(한/영 키 상태). "
+                "'🔑 로그인 설정'에서 영문으로 다시 입력하세요.")
+    return ""
 
 
 def password_missing_message(site: dict, site_name: str) -> str:
@@ -3503,7 +3572,12 @@ class DspMallCrawler(BaseCrawler):
 
         # 로그인 폼 페이지 먼저 방문(세션 쿠키 GD5SESSID 발급받기)
         async with self.session.get(self.LOGIN_PAGE, headers=self._headers) as resp:
-            await resp.text()
+            page_html = await resp.text()
+
+        # v11.7: 사이트 gd_common.js의 $.ajaxSetup이 모든 AJAX에
+        # X-CSRF-Token(<meta name="csrf-token">) 헤더를 붙인다 — 브라우저와 같게 보냄.
+        m = re.search(r'<meta\s+name="csrf-token"\s+content="([^"]*)"', page_html or "")
+        csrf_headers = {"X-CSRF-Token": m.group(1)} if m else {}
 
         login_data = {
             "returnUrl": "/",
@@ -3520,6 +3594,7 @@ class DspMallCrawler(BaseCrawler):
                 "Referer": self.LOGIN_PAGE,
                 "Origin": self.BASE,
                 "Accept": "application/json, text/javascript, */*; q=0.01",
+                **csrf_headers,
             },
         ) as resp:
             body = await resp.text()
@@ -3532,6 +3607,10 @@ class DspMallCrawler(BaseCrawler):
 
         if isinstance(data, dict) and (data.get("code") or data.get("message")):
             msg = data.get("message") or f"오류 코드 {data.get('code')}"
+            # v11.7: 동성몰은 없는 아이디와 틀린 비밀번호에 모두 code 700
+            # "회원정보를 찾을 수 없습니다"를 돌려줘 문구만으로는 구분이 안 됨.
+            if str(data.get("code")) == "700":
+                msg += " (아이디 또는 비밀번호 불일치 — 동성몰은 둘을 구분하지 않음)"
             raise LoginError(f"'{self.site_name}' 로그인 실패: {msg}")
 
         # 응답 본문에 로그인 실패 안내 문구가 그대로 담겨 오는 경우 방어
@@ -6363,12 +6442,12 @@ class App(tk.Tk):
                         if crawler.logged_in:
                             results.append(f"✅ {name}: 로그인 성공")
                         else:
-                            results.append(f"❌ {name}: 로그인 실패")
+                            results.append(f"❌ {name}: 로그인 실패{login_failure_hint(site)}")
                     finally:
                         loop.run_until_complete(crawler.close())
                 except Exception as ex:
                     err_msg = str(ex)
-                    results.append(f"❌ {name}: {err_msg}")
+                    results.append(f"❌ {name}: {err_msg}{login_failure_hint(site)}")
 
             loop.close()
             msg = "\n".join(results)
@@ -6577,6 +6656,9 @@ class SiteDialog(tk.Toplevel):
             site["credentials"]["username"] = self.user_var.get().strip()
             pw = self.pw_var.get().strip()
             if pw and pw != "••••••••":
+                pw = confirm_password_input(pw, self)
+                if pw is None:
+                    return
                 site["credentials"]["password_encrypted"] = cred_mgr.encrypt(pw)
             elif self.edit_idx is not None:
                 # 비밀번호 미변경 → 기존 유지
@@ -6620,7 +6702,7 @@ class CredentialDialog(tk.Toplevel):
         self.site_idx = site_idx
         site = parent.config_data["sites"][site_idx]
         self.title(f"🔑 로그인 설정 — {site['name']}")
-        self.geometry("420x280")
+        self.geometry("420x310")
         self.configure(bg=App.BG)
         self.resizable(False, False)
         self.transient(parent)
@@ -6641,16 +6723,27 @@ class CredentialDialog(tk.Toplevel):
 
         tk.Label(c, text="비밀번호", bg=App.BG, fg=App.TEXT, font=("맑은 고딕", 10)).grid(row=2, column=0, sticky="w", pady=6)
         self.pw_var = tk.StringVar()
-        tk.Entry(c, textvariable=self.pw_var, show="●", width=28, bg=App.ENTRY_BG, fg=App.TEXT,
-                 insertbackground=App.TEXT, relief="flat", font=("맑은 고딕", 11)).grid(row=2, column=1, padx=10, ipady=5)
+        pw_entry = tk.Entry(c, textvariable=self.pw_var, show="●", width=28, bg=App.ENTRY_BG, fg=App.TEXT,
+                            insertbackground=App.TEXT, relief="flat", font=("맑은 고딕", 11))
+        pw_entry.grid(row=2, column=1, padx=10, ipady=5)
+
+        # v11.7: 입력한 비밀번호를 눈으로 확인(한/영 상태 실수 방지)
+        self.show_pw_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(c, text="비밀번호 표시", variable=self.show_pw_var,
+                       command=lambda: pw_entry.configure(show="" if self.show_pw_var.get() else "●"),
+                       bg=App.BG, fg=App.TEXT2, selectcolor=App.ENTRY_BG, activebackground=App.BG,
+                       font=("맑은 고딕", 8)).grid(row=3, column=1, sticky="w", padx=10)
 
         if creds.get("password_encrypted"):
-            masked = cred_mgr.mask(get_site_password(site)) or "(읽을 수 없음 — 다시 입력하세요)"
+            saved_pw = get_site_password(site)
+            masked = cred_mgr.mask(saved_pw) or "(읽을 수 없음 — 다시 입력하세요)"
+            if saved_pw and has_hangul(saved_pw):
+                masked += "  ⚠ 한글 포함 — 영문으로 다시 입력하세요"
             tk.Label(c, text=f"현재 저장된 비밀번호: {masked}", bg=App.BG, fg=App.TEXT2,
-                     font=("맑은 고딕", 8)).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 10))
+                     font=("맑은 고딕", 8)).grid(row=4, column=0, columnspan=2, sticky="w", pady=(2, 10))
 
         btn_f = tk.Frame(c, bg=App.BG)
-        btn_f.grid(row=4, column=0, columnspan=2, pady=(15, 0))
+        btn_f.grid(row=5, column=0, columnspan=2, pady=(15, 0))
         ttk.Button(btn_f, text="💾 저장", style="Green.TButton", command=self._save).pack(side="left", padx=(0, 10))
         ttk.Button(btn_f, text="취소", style="Flat.TButton", command=self.destroy).pack(side="left")
 
@@ -6658,6 +6751,10 @@ class CredentialDialog(tk.Toplevel):
         site = self.parent.config_data["sites"][self.site_idx]
         user = self.user_var.get().strip()
         pw = self.pw_var.get().strip()
+        if pw:
+            pw = confirm_password_input(pw, self)
+            if pw is None:
+                return
 
         if user:
             site.setdefault("credentials", {})["username"] = user
